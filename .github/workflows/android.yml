@@ -1,0 +1,174 @@
+name: Android
+
+# Builds the web app, wraps it with Capacitor, and produces:
+#   • a sideloadable APK on every push (debug-signed unless release secrets exist)
+#   • a release-signed APK + AAB attached to a GitHub Release on tags v*
+#   • an upload to Google Play (internal by default) on tags, or on demand
+#
+# Required repository secrets for release builds (see docs/RELEASING.md):
+#   ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD
+# Required for Play upload:
+#   PLAY_SERVICE_ACCOUNT_JSON
+
+on:
+  push:
+    branches: ['**']
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      track:
+        description: 'Google Play track'
+        type: choice
+        default: internal
+        options: [internal, alpha, beta, production]
+      deploy:
+        description: 'Upload to Google Play'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PACKAGE_NAME: app.tavern.dm
+
+jobs:
+  build:
+    name: Build APK / AAB
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    outputs:
+      version_name: ${{ steps.version.outputs.name }}
+      version_code: ${{ steps.version.outputs.code }}
+      signed: ${{ steps.keystore.outputs.present }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck, unit tests, SRD data check
+        run: |
+          npm run typecheck
+          npm test
+          npm run check:srd
+
+      - name: Build web app
+        run: npm run build
+
+      - name: Compute version
+        id: version
+        run: |
+          # versionCode must increase monotonically for Play; use the commit count.
+          CODE=$(git rev-list --count HEAD)
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then NAME="${GITHUB_REF#refs/tags/v}"; else NAME="0.1.0-$(git rev-parse --short HEAD)"; fi
+          echo "code=$CODE" >> "$GITHUB_OUTPUT"
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "Version $NAME ($CODE)"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Sync Capacitor
+        run: npx cap sync android
+
+      - name: Restore release keystore
+        id: keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No ANDROID_KEYSTORE_BASE64 secret — building a debug-signed APK only."
+          fi
+
+      - name: Build release APK + AAB (signed)
+        if: steps.keystore.outputs.present == 'true'
+        working-directory: android
+        env:
+          VERSION_CODE: ${{ steps.version.outputs.code }}
+          VERSION_NAME: ${{ steps.version.outputs.name }}
+          KEYSTORE_PATH: ${{ runner.temp }}/release.keystore
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon assembleRelease bundleRelease
+          mkdir -p ../out
+          cp app/build/outputs/apk/release/app-release.apk "../out/tavern-${VERSION_NAME}.apk"
+          cp app/build/outputs/bundle/release/app-release.aab "../out/tavern-${VERSION_NAME}.aab"
+
+      - name: Build debug APK (sideloadable, unsigned release key)
+        if: steps.keystore.outputs.present != 'true'
+        working-directory: android
+        env:
+          VERSION_CODE: ${{ steps.version.outputs.code }}
+          VERSION_NAME: ${{ steps.version.outputs.name }}
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon assembleDebug
+          mkdir -p ../out
+          cp app/build/outputs/apk/debug/app-debug.apk "../out/tavern-${VERSION_NAME}-debug.apk"
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: tavern-android-${{ steps.version.outputs.name }}
+          path: out/*
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Attach to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: out/*
+          generate_release_notes: true
+
+  play:
+    name: Deploy to Google Play
+    needs: build
+    if: needs.build.outputs.signed == 'true' && (startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.deploy))
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: google-play
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: tavern-android-${{ needs.build.outputs.version_name }}
+          path: out
+
+      - name: Upload AAB to Google Play
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: ${{ env.PACKAGE_NAME }}
+          releaseFiles: out/*.aab
+          track: ${{ inputs.track || 'internal' }}
+          status: completed
+          inAppUpdatePriority: 2
+          changesNotSentForReview: false

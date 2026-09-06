@@ -13,9 +13,17 @@
     "check:srd": "tsx --tsconfig tsconfig.json scripts/check-srd.ts",
     "mock": "node scripts/mock-openrouter.mjs 8787",
     "e2e": "node scripts/e2e.mjs",
-    "icons": "node scripts/icons.mjs"
+    "icons": "node scripts/icons.mjs",
+    "native:assets": "node scripts/native-assets.mjs && npx capacitor-assets generate --android --iconBackgroundColor #0b0a10 --iconBackgroundColorDark #0b0a10 --splashBackgroundColor #0b0a10 --splashBackgroundColorDark #0b0a10",
+    "cap:sync": "npm run build && npx cap sync android",
+    "smoke:real": "node scripts/smoke-real.mjs"
   },
   "dependencies": {
+    "@capacitor/android": "^8.5.1",
+    "@capacitor/app": "^8.1.1",
+    "@capacitor/cli": "^8.5.1",
+    "@capacitor/core": "^8.5.1",
+    "@capacitor/status-bar": "^8.0.3",
     "@fontsource-variable/cinzel": "^5.1.0",
     "@fontsource-variable/crimson-pro": "^5.1.0",
     "dexie": "^4.0.10",
@@ -27,6 +35,7 @@
     "zustand": "^5.0.2"
   },
   "devDependencies": {
+    "@capacitor/assets": "^3.0.5",
     "@types/node": "^22.20.1",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
