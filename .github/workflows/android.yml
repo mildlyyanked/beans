@@ -26,6 +26,10 @@ on:
         description: 'Upload to Google Play'
         type: boolean
         default: false
+      publish:
+        description: 'Publish this build as the rolling "nightly" pre-release (direct APK download link)'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -148,6 +152,19 @@ jobs:
         with:
           files: out/*
           generate_release_notes: true
+
+      - name: Publish rolling nightly pre-release
+        if: github.event_name == 'workflow_dispatch' && inputs.publish
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: nightly
+          name: Nightly build (${{ steps.version.outputs.name }})
+          body: |
+            Latest sideloadable build from `${{ github.ref_name }}` @ ${{ github.sha }}.
+            Download the `.apk` below on your phone and open it to install.
+          prerelease: true
+          files: out/*
+          target_commitish: ${{ github.sha }}
 
   play:
     name: Deploy to Google Play

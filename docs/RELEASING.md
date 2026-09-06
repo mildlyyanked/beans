@@ -8,7 +8,7 @@ The `Android` workflow (`.github/workflows/android.yml`) does everything from a 
 | --- | --- |
 | Any push or PR | Typecheck, tests, SRD check, then an APK. With release secrets: release-signed APK + AAB. Without: a debug-signed APK. Both are sideloadable and appear under the run's **Artifacts**. |
 | Tag `v1.2.3` | Same build with `versionName=1.2.3`, attached to a GitHub Release, and the AAB is uploaded to the Play **internal** track. |
-| **Run workflow** button | Choose a Play track and tick *deploy* to push the current commit to Play. |
+| **Run workflow** button | Tick *publish* to update the rolling `nightly` pre-release (a direct APK link for sideloading); choose a Play track and tick *deploy* to push the current commit to Play. |
 
 `versionCode` is the commit count on the branch, so it only ever increases. `versionName` comes from the tag.
 
