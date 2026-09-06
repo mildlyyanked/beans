@@ -1,0 +1,40 @@
+{
+  "name": "tavern-ai",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Tavern \u2014 an LLM-driven tabletop RPG companion with a data-driven ruleset, persistent world memory, and image generation.",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --host",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --import tsx tests/*.test.ts",
+    "check:srd": "tsx --tsconfig tsconfig.json scripts/check-srd.ts",
+    "mock": "node scripts/mock-openrouter.mjs 8787",
+    "e2e": "node scripts/e2e.mjs",
+    "icons": "node scripts/icons.mjs"
+  },
+  "dependencies": {
+    "@fontsource-variable/cinzel": "^5.1.0",
+    "@fontsource-variable/crimson-pro": "^5.1.0",
+    "dexie": "^4.0.10",
+    "framer-motion": "^11.15.0",
+    "lucide-react": "^0.468.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "zod": "^3.24.1",
+    "zustand": "^5.0.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.1",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "@vitejs/plugin-react": "^4.3.4",
+    "playwright": "^1.49.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.7",
+    "vite-plugin-pwa": "^0.21.1"
+  }
+}
