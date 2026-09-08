@@ -82,7 +82,14 @@ const server = http.createServer(async (req, res) => {
   const lastMsg = b.messages[b.messages.length - 1];
 
   if (Array.isArray(b.modalities) && b.modalities.includes('image')) { await sleep(300); return json(res, { choices: [{ message: { role: 'assistant', content: '', images: [{ type: 'image_url', image_url: { url: IMG } }] }, finish_reason: 'stop' }] }); }
-  if (b.response_format?.type === 'json_object') { await sleep(200); return json(res, { choices: [{ message: { role: 'assistant', content: JSON.stringify(jsonReply(system, text(lastUser))) }, finish_reason: 'stop' }], usage: { total_tokens: 100 } }); }
+  if (b.response_format?.type === 'json_object') {
+    const payload = JSON.stringify(jsonReply(system, text(lastUser)));
+    if (!b.stream) { await sleep(200); return json(res, { choices: [{ message: { role: 'assistant', content: payload }, finish_reason: 'stop' }], usage: { total_tokens: 100 } }); }
+    const send = sse(res);
+    for (let i = 0; i < payload.length; i += 120) { send({ choices: [{ delta: { content: payload.slice(i, i + 120) } }] }); await sleep(5); }
+    send({ choices: [{ delta: {}, finish_reason: 'stop' }] });
+    res.write('data: [DONE]\n\n'); return res.end();
+  }
 
   const toolResults = b.messages.filter((m) => m.role === 'tool').map(text);
   const wantsTools = Array.isArray(b.tools) && b.tools.length && lastMsg.role !== 'tool';

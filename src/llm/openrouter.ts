@@ -45,6 +45,10 @@ export interface ChatOptions {
   /** Provider routing preferences passed through to OpenRouter. */
   provider?: Record<string, unknown>;
   reasoning?: { effort?: 'low' | 'medium' | 'high'; exclude?: boolean };
+  /** Abort if the whole request exceeds this (default 240s). */
+  timeoutMs?: number;
+  /** For streams: abort if no bytes arrive for this long (default 75s). */
+  idleTimeoutMs?: number;
 }
 
 export interface ChatResult {
@@ -107,6 +111,30 @@ export async function checkKey(apiKey: string): Promise<{ ok: boolean; label?: s
 export async function chat(apiKey: string, opts: ChatOptions): Promise<ChatResult> {
   if (!apiKey) throw new OpenRouterError('No OpenRouter API key configured. Add one in Settings.');
   const stream = opts.stream !== false && !!opts.onDelta;
+  // Timeouts: mobile networks silently drop long-idle connections, so never wait forever.
+  const ac = new AbortController();
+  let timedOut: string | null = null;
+  const fail = (why: string) => { timedOut = why; ac.abort(); };
+  if (opts.signal) { if (opts.signal.aborted) ac.abort(); else opts.signal.addEventListener('abort', () => ac.abort(), { once: true }); }
+  const overall = setTimeout(() => fail(`The model did not finish within ${Math.round((opts.timeoutMs ?? 240000) / 1000)}s. Try again, or pick a faster model in Settings.`), opts.timeoutMs ?? 240000);
+  const idleMs = opts.idleTimeoutMs ?? 75000;
+  let idle: ReturnType<typeof setTimeout> | undefined;
+  const bump = () => { if (idle) clearTimeout(idle); idle = setTimeout(() => fail(`No response from the model for ${Math.round(idleMs / 1000)}s. Check your connection and try again.`), idleMs); };
+  try {
+    return await chatInner(apiKey, { ...opts, signal: ac.signal }, stream, bump);
+  } catch (e) {
+    if (timedOut) throw new OpenRouterError(timedOut);
+    if ((e as Error).name === 'AbortError' && !opts.signal?.aborted) throw new OpenRouterError('Request was cancelled.');
+    if ((e as Error).name === 'TypeError' && /fetch|network/i.test((e as Error).message)) throw new OpenRouterError(`Network error reaching the API (${(e as Error).message}). Check your connection and the API base URL in Settings.`);
+    throw e;
+  } finally {
+    clearTimeout(overall);
+    if (idle) clearTimeout(idle);
+  }
+}
+
+async function chatInner(apiKey: string, opts: ChatOptions, stream: boolean, bump: () => void): Promise<ChatResult> {
+  bump();
   const body: Record<string, unknown> = {
     model: opts.model,
     messages: opts.messages,
@@ -131,6 +159,7 @@ export async function chat(apiKey: string, opts: ChatOptions): Promise<ChatResul
     throw new OpenRouterError(msg, res.status);
   }
 
+  bump();
   if (!stream) {
     const json = await res.json();
     const choice = json.choices?.[0];
@@ -187,6 +216,7 @@ export async function chat(apiKey: string, opts: ChatOptions): Promise<ChatResul
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
+    bump();
     buffer += decoder.decode(value, { stream: true });
     let nl: number;
     while ((nl = buffer.indexOf('\n')) >= 0) {
@@ -207,10 +237,18 @@ function extractImages(msg: any): string[] {
   return out;
 }
 
-/** Ask a JSON-mode completion and parse the result leniently. */
-export async function chatJson<T = unknown>(apiKey: string, opts: Omit<ChatOptions, 'response_format' | 'stream' | 'onDelta'>): Promise<T> {
-  const res = await chat(apiKey, { ...opts, stream: false, response_format: { type: 'json_object' } });
-  return parseJsonLenient<T>(res.content);
+/**
+ * Ask a JSON-mode completion and parse the result leniently. Streams under the
+ * hood so long generations keep the connection alive and can report progress.
+ */
+export async function chatJson<T = unknown>(apiKey: string, opts: Omit<ChatOptions, 'response_format' | 'stream' | 'onDelta'> & { onProgress?: (chars: number) => void }): Promise<T> {
+  let chars = 0;
+  const { onProgress, ...rest } = opts;
+  const res = await chat(apiKey, { ...rest, stream: true, response_format: { type: 'json_object' }, onDelta: (d) => { chars += d.length; onProgress?.(chars); } });
+  if (!res.content.trim()) throw new OpenRouterError(`The model returned an empty response${res.finishReason ? ` (finish reason: ${res.finishReason})` : ''}. Try another model.`);
+  try { return parseJsonLenient<T>(res.content); } catch {
+    throw new OpenRouterError(res.finishReason === 'length' ? 'The model ran out of room before finishing the JSON. Try a model with a larger output limit.' : `The model did not return valid JSON (${res.content.slice(0, 80)}…). Try another model.`);
+  }
 }
 
 export function parseJsonLenient<T = unknown>(text: string): T {

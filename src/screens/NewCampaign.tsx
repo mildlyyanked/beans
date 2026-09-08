@@ -44,6 +44,7 @@ export function NewCampaignScreen() {
   const [seed, setSeed] = useState<WorldSeed | null>(null);
   const [name, setName] = useState('');
   const [forging, setForging] = useState(false);
+  const [forgeChars, setForgeChars] = useState(0);
   const [manual, setManual] = useState(false);
   const [manualWorld, setManualWorld] = useState({ premise: '', setting: '', openingHook: '', startingLocation: '' });
 
@@ -59,9 +60,9 @@ export function NewCampaignScreen() {
 
   const forge = async () => {
     if (!apiKey) { toast('Add your OpenRouter key in Settings first', 'error'); return; }
-    setForging(true);
+    setForging(true); setForgeChars(0);
     try {
-      const s = await generateWorld(rs, idea, { tone: tones.join(', '), contentRating: rating });
+      const s = await generateWorld(rs, idea, { tone: tones.join(', '), contentRating: rating, onProgress: setForgeChars });
       setSeed(s);
       if (!name) setName(s.suggestedName ?? '');
       toast('World forged', 'success');
@@ -170,7 +171,7 @@ export function NewCampaignScreen() {
                 <div className="chips">{IDEAS.map((i, n) => <Chip key={n} onClick={() => setIdea(i)}>{i.slice(0, 34)}…</Chip>)}</div>
                 <Field label="Tone"><div className="chips">{TONES.map((t) => <Chip key={t} on={tones.includes(t)} onClick={() => setTones((c) => (c.includes(t) ? c.filter((x) => x !== t) : [...c, t].slice(-3)))}>{t}</Chip>)}</div></Field>
                 <Field label="Content rating"><Segmented value={rating} options={[{ value: 'pg', label: 'PG' }, { value: 'pg13', label: 'PG-13' }, { value: 'r', label: 'Mature' }]} onChange={setRating} /></Field>
-                <Button variant="arcane" block disabled={forging} onClick={forge}><Wand2 size={16} /> {forging ? 'Forging the world…' : seed ? 'Forge again' : 'Forge world'}</Button>
+                <Button variant="arcane" block disabled={forging} onClick={forge}><Wand2 size={16} /> {forging ? (forgeChars ? `Forging… ${(forgeChars / 1000).toFixed(1)}k` : 'Contacting the model…') : seed ? 'Forge again' : 'Forge world'}</Button>
                 {seed && (
                   <div className="card glow stack-sm">
                     <Field label="Campaign name"><input className="input" value={name} onChange={(e) => setName(e.target.value)} /></Field>

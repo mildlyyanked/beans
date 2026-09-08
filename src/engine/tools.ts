@@ -311,7 +311,7 @@ const handlers: Record<string, Handler> = {
     const nat = r.kept?.[0] ?? r.rolls[0];
     let { successes, failures } = ch.deathSaves;
     let outcome = '';
-    if (nat === 20) { outcome = `${ch.name} surges back to consciousness with 1 HP!`; setCharacterHp(ctx, ch, 1); successes = 0; failures = 0; ctx.set((c2) => ({ ...c2, characters: { ...c2.characters, [ch.id]: { ...c2.characters[ch.id], conditions: c2.characters[ch.id].conditions.filter((x) => x !== 'unconscious'), deathSaves: { successes: 0, failures: 0 } } } })); ctx.onEvent(outcome); return { result: outcome, effect: outcome }; }
+    if (nat === 20) { outcome = `${ch.name} surges back to consciousness with 1 HP!`; setCharacterHp(ctx, ch, 1); successes = 0; failures = 0; ctx.set((c2) => ({ ...c2, characters: { ...c2.characters, [ch.id]: { ...c2.characters[ch.id], conditions: c2.characters[ch.id].conditions.filter((x) => x !== 'unconscious'), deathSaves: { successes: 0, failures: 0 } } } })); ctx.onEvent(outcome); return { result: `${describeRoll(r)} — ${outcome}`, effect: outcome }; }
     if (nat === 1) failures += 2; else if (r.success) successes += 1; else failures += 1;
     if (failures >= rules.failuresAllowed) outcome = `${ch.name} has died.`;
     else if (successes >= rules.successesNeeded) { outcome = `${ch.name} is stable (unconscious, 0 HP).`; successes = 0; failures = 0; }

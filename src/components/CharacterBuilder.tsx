@@ -22,6 +22,7 @@ export function CharacterBuilder({ rs, draft, onChange, worldPremise, playerName
   const toast = useUI((s) => s.toast);
   const [method, setMethod] = useState<'array' | 'points' | 'roll'>('array');
   const [genBusy, setGenBusy] = useState(false);
+  const [genChars, setGenChars] = useState(0);
   const cls = findClass(rs, draft.classId);
   const sp = findSpecies(rs, draft.speciesId);
   const bg = findBackground(rs, draft.backgroundId);
@@ -55,7 +56,8 @@ export function CharacterBuilder({ rs, draft, onChange, worldPremise, playerName
   const generate = async () => {
     setGenBusy(true);
     try {
-      const p = await generatePersona(rs, { name: draft.name || undefined, speciesId: draft.speciesId, classId: draft.classId, backgroundId: draft.backgroundId, kind: draft.kind, worldPremise, playerName });
+      setGenChars(0);
+      const p = await generatePersona(rs, { name: draft.name || undefined, speciesId: draft.speciesId, classId: draft.classId, backgroundId: draft.backgroundId, kind: draft.kind, worldPremise, playerName, onProgress: setGenChars });
       set({ name: draft.name || p.name || '', pronouns: p.pronouns, alignment: p.alignment ?? draft.alignment, persona: { personality: p.personality ?? '', ideals: p.ideals ?? '', bonds: p.bonds ?? '', flaws: p.flaws ?? '', voice: p.voice ?? '', backstory: p.backstory ?? '', appearance: p.appearance ?? '', relationship: p.relationship } });
       toast('Character written', 'success');
     } catch (e) { toast((e as Error).message, 'error'); }
@@ -195,7 +197,7 @@ export function CharacterBuilder({ rs, draft, onChange, worldPremise, playerName
         </>
       )}
 
-      <SectionTitle right={<Button variant="arcane" size="xs" disabled={genBusy} onClick={generate}><Wand2 size={12} /> {genBusy ? 'Writing…' : 'Write with AI'}</Button>}>Persona</SectionTitle>
+      <SectionTitle right={<Button variant="arcane" size="xs" disabled={genBusy} onClick={generate}><Wand2 size={12} /> {genBusy ? (genChars ? `Writing… ${genChars}` : 'Thinking…') : 'Write with AI'}</Button>}>Persona</SectionTitle>
       <div className="stack-sm">
         {(['personality', 'ideals', 'bonds', 'flaws', 'appearance', 'voice', 'backstory'] as const).map((k) => (
           <Field key={k} label={k}>

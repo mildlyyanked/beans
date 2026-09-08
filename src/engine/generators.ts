@@ -33,7 +33,7 @@ export interface WorldSeed {
   quests: { name: string; summary: string; objectives: string[] }[];
 }
 
-export async function generateWorld(rs: Ruleset, prompt: string, opts: { tone?: string; contentRating?: string } = {}): Promise<WorldSeed> {
+export async function generateWorld(rs: Ruleset, prompt: string, opts: { tone?: string; contentRating?: string; onProgress?: (chars: number) => void } = {}): Promise<WorldSeed> {
   const system = `You are a master worldbuilder and campaign designer for the tabletop RPG system "${rs.name}". ${rs.gmGuidance}
 
 Design a compelling campaign premise from the user's idea. Be specific and concrete — names, places, factions with agendas, a central tension, a hook that starts in motion. Avoid clichés unless twisted. The player is a single hero (with optional companions), so build around personal stakes.
@@ -54,7 +54,7 @@ Respond with JSON only:
   "quests": [{"name": "...", "summary": "one line", "objectives": ["..."]}] (1-2 starting quests)
 }`;
   const user = `Campaign idea: ${prompt || 'Surprise me with something fresh and evocative.'}${opts.tone ? `\nDesired tone: ${opts.tone}` : ''}${opts.contentRating ? `\nContent rating: ${opts.contentRating}` : ''}`;
-  return chatJson<WorldSeed>(key(), { model: dmModel(), messages: [{ role: 'system', content: system }, { role: 'user', content: user }], temperature: 1.0, max_tokens: 3500 });
+  return chatJson<WorldSeed>(key(), { model: dmModel(), messages: [{ role: 'system', content: system }, { role: 'user', content: user }], temperature: 1.0, max_tokens: 7000, onProgress: opts.onProgress });
 }
 
 /* ------------------------------------------------------------------ */
@@ -63,7 +63,7 @@ Respond with JSON only:
 
 export interface PersonaSeed extends Persona { name?: string; pronouns?: string; alignment?: string; portraitPrompt?: string }
 
-export async function generatePersona(rs: Ruleset, opts: { name?: string; speciesId: string; classId: string; backgroundId: string; kind: 'player' | 'companion'; worldPremise?: string; hint?: string; playerName?: string }): Promise<PersonaSeed> {
+export async function generatePersona(rs: Ruleset, opts: { name?: string; speciesId: string; classId: string; backgroundId: string; kind: 'player' | 'companion'; worldPremise?: string; hint?: string; playerName?: string; onProgress?: (chars: number) => void }): Promise<PersonaSeed> {
   const sp = findSpecies(rs, opts.speciesId)?.name ?? opts.speciesId;
   const cls = findClass(rs, opts.classId)?.name ?? opts.classId;
   const bg = findBackground(rs, opts.backgroundId);
@@ -83,7 +83,7 @@ export async function generatePersona(rs: Ruleset, opts: { name?: string; specie
   "portraitPrompt": "one-line visual prompt for an illustrated portrait"
 }`;
   const user = `${opts.kind === 'companion' ? 'A companion NPC' : 'The player character'}: ${opts.name ? `named ${opts.name}, ` : ''}a ${sp} ${cls} with the ${bg?.name ?? opts.backgroundId} background.${bg?.suggestedCharacteristics ? ` Background flavor: ${(bg.suggestedCharacteristics.personalityTraits ?? []).slice(0, 2).join(' / ')}` : ''}${opts.worldPremise ? `\nCampaign: ${opts.worldPremise}` : ''}${opts.playerName ? `\nThe player character is ${opts.playerName}.` : ''}${opts.hint ? `\nNotes: ${opts.hint}` : ''}`;
-  return chatJson<PersonaSeed>(key(), { model: utilityModel(), messages: [{ role: 'system', content: system }, { role: 'user', content: user }], temperature: 1.0, max_tokens: 1200 });
+  return chatJson<PersonaSeed>(key(), { model: utilityModel(), messages: [{ role: 'system', content: system }, { role: 'user', content: user }], temperature: 1.0, max_tokens: 2000, onProgress: opts.onProgress });
 }
 
 export interface CompanionConcept { name: string; speciesId: string; classId: string; backgroundId: string; hint: string }
@@ -116,7 +116,7 @@ export async function generateRuleset(prompt: string, onProgress: RulesetGenProg
   const brief = `Design brief: ${prompt}`;
   const call = async <T,>(stage: string, ask: string, maxTokens: number): Promise<T> => {
     onProgress(stage, 0);
-    return chatJson<T>(apiKey, { model, messages: [{ role: 'system', content: sys }, { role: 'user', content: `${brief}\n\n${ask}` }], temperature: 0.8, max_tokens: maxTokens });
+    return chatJson<T>(apiKey, { model, messages: [{ role: 'system', content: sys }, { role: 'user', content: `${brief}\n\n${ask}` }], temperature: 0.8, max_tokens: maxTokens, timeoutMs: 600000, onProgress: (chars) => onProgress(`${stage} · ${(chars / 1000).toFixed(1)}k chars`, -1) });
   };
 
   onProgress('Designing core mechanics', 0.05);

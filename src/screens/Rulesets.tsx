@@ -31,7 +31,7 @@ export function RulesetsScreen() {
     if (!apiKey) { toast('Add your OpenRouter key in Settings first', 'error'); return; }
     setProgress({ stage: 'Starting', pct: 0 });
     try {
-      const rs = await generateRuleset(prompt, (stage, pct) => setProgress({ stage, pct }));
+      const rs = await generateRuleset(prompt, (stage, pct) => setProgress((p) => ({ stage, pct: pct < 0 ? (p?.pct ?? 0) : pct })));
       await save(rs);
       setGen(false); setProgress(null);
       toast(`"${rs.name}" is ready — review it in the editor`, 'success');
