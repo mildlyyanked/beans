@@ -13,7 +13,7 @@ npm run build      # production build in dist/ (PWA with service worker)
 npm run preview    # serve the production build
 ```
 
-On first launch paste an [OpenRouter](https://openrouter.ai/keys) API key. Pick models per role under **Settings → Models** (the DM needs a model with tool calling; the illustrator needs an image-output model such as `google/gemini-2.5-flash-image-preview`). Settings also exposes the API base URL, so any OpenAI-compatible endpoint (a local Ollama or LM Studio server, for example) works too.
+On first launch paste an [OpenRouter](https://openrouter.ai/keys) API key. Pick models per role under **Settings → Models** (the DM needs a model with tool calling; the illustrator needs an image-output model such as `openai/gpt-5-image-mini`). Settings also exposes the API base URL, so any OpenAI-compatible endpoint (a local Ollama or LM Studio server, for example) works too.
 
 ## What's in the box
 

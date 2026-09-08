@@ -49,6 +49,8 @@ export interface ChatOptions {
   timeoutMs?: number;
   /** For streams: abort if no bytes arrive for this long (default 75s). */
   idleTimeoutMs?: number;
+  /** Called before an automatic retry so callers can reset streamed buffers. */
+  onRetry?: () => void;
 }
 
 export interface ChatResult {
@@ -70,6 +72,8 @@ export interface OpenRouterModel {
   supported_parameters?: string[];
   top_provider?: { context_length?: number; max_completion_tokens?: number };
 }
+
+import { acquireWakeLock, releaseWakeLock, whenVisible } from '@/util/wakelock';
 
 let BASE = 'https://openrouter.ai/api/v1';
 /** Override the API base (OpenAI-compatible). Used for local servers and tests. */
@@ -107,8 +111,35 @@ export async function checkKey(apiKey: string): Promise<{ ok: boolean; label?: s
   }
 }
 
-/** Core chat call. Streams when opts.stream !== false and an onDelta handler is provided. */
+/**
+ * Core chat call. Streams when opts.stream !== false and an onDelta handler is provided.
+ * Holds a screen wake lock for the duration, and if the connection dies while the app
+ * was in the background, waits for the app to return and retries once.
+ */
 export async function chat(apiKey: string, opts: ChatOptions): Promise<ChatResult> {
+  await acquireWakeLock();
+  let wasHidden = typeof document !== 'undefined' && document.visibilityState === 'hidden';
+  const onVis = () => { if (document.visibilityState === 'hidden') wasHidden = true; };
+  if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onVis);
+  try {
+    try {
+      return await chatOnce(apiKey, opts);
+    } catch (e) {
+      const err = e as Error & { status?: number };
+      const retryable = !opts.signal?.aborted && !err.status && /network|cancelled|no response|did not finish|fetch|reset|aborted/i.test(err.message);
+      if (!retryable || !wasHidden) throw e;
+      // The app was backgrounded mid-request (Android throttles/drops the socket). Retry once when visible.
+      await whenVisible();
+      opts.onRetry?.();
+      return await chatOnce(apiKey, opts);
+    }
+  } finally {
+    if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', onVis);
+    releaseWakeLock();
+  }
+}
+
+async function chatOnce(apiKey: string, opts: ChatOptions): Promise<ChatResult> {
   if (!apiKey) throw new OpenRouterError('No OpenRouter API key configured. Add one in Settings.');
   const stream = opts.stream !== false && !!opts.onDelta;
   // Timeouts: mobile networks silently drop long-idle connections, so never wait forever.
@@ -244,7 +275,7 @@ function extractImages(msg: any): string[] {
 export async function chatJson<T = unknown>(apiKey: string, opts: Omit<ChatOptions, 'response_format' | 'stream' | 'onDelta'> & { onProgress?: (chars: number) => void }): Promise<T> {
   let chars = 0;
   const { onProgress, ...rest } = opts;
-  const res = await chat(apiKey, { ...rest, stream: true, response_format: { type: 'json_object' }, onDelta: (d) => { chars += d.length; onProgress?.(chars); } });
+  const res = await chat(apiKey, { ...rest, stream: true, response_format: { type: 'json_object' }, onDelta: (d) => { chars += d.length; onProgress?.(chars); }, onRetry: () => { chars = 0; onProgress?.(0); } });
   if (!res.content.trim()) throw new OpenRouterError(`The model returned an empty response${res.finishReason ? ` (finish reason: ${res.finishReason})` : ''}. Try another model.`);
   try { return parseJsonLenient<T>(res.content); } catch {
     throw new OpenRouterError(res.finishReason === 'length' ? 'The model ran out of room before finishing the JSON. Try a model with a larger output limit.' : `The model did not return valid JSON (${res.content.slice(0, 80)}…). Try another model.`);

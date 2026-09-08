@@ -123,6 +123,7 @@ export async function runDmTurn(): Promise<void> {
           const now = performance.now();
           if (now - lastFlush > 60) { lastFlush = now; flush(); }
         },
+        onRetry: () => { streamed = finalText ? finalText + '\n\n' : ''; flush(); },
       });
       flush();
 

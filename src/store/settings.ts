@@ -10,10 +10,10 @@ export interface ModelConfig {
 }
 
 export const DEFAULT_MODELS: ModelConfig = {
-  dm: 'anthropic/claude-sonnet-4.5',
-  companion: 'anthropic/claude-haiku-4.5',
-  utility: 'anthropic/claude-haiku-4.5',
-  image: 'google/gemini-2.5-flash-image-preview',
+  dm: 'deepseek/deepseek-v4-pro-0813',
+  companion: '~deepseek/deepseek-v4-flash-latest',
+  utility: '~deepseek/deepseek-v4-flash-latest',
+  image: 'openai/gpt-5-image-mini',
 };
 
 export const DEFAULT_BASE_URL = 'https://openrouter.ai/api/v1';

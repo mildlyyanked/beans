@@ -12,9 +12,9 @@ import fs from 'node:fs';
 
 const KEY = process.env.OPENROUTER_API_KEY;
 if (!KEY) { console.error('Set OPENROUTER_API_KEY'); process.exit(1); }
-const DM = process.env.DM_MODEL || 'anthropic/claude-haiku-4.5';
-const FAST = process.env.FAST_MODEL || 'anthropic/claude-haiku-4.5';
-const IMAGE = process.env.IMAGE_MODEL || 'google/gemini-2.5-flash-image-preview';
+const DM = process.env.DM_MODEL || "deepseek/deepseek-v4-pro-0813";
+const FAST = process.env.FAST_MODEL || "~deepseek/deepseek-v4-flash-latest";
+const IMAGE = process.env.IMAGE_MODEL || "openai/gpt-5-image-mini";
 const EXEC = process.env.CHROME_PATH || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
 const OUT = 'screenshots/real'; fs.mkdirSync(OUT, { recursive: true });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

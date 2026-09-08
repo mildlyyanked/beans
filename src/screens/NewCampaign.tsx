@@ -45,6 +45,7 @@ export function NewCampaignScreen() {
   const [name, setName] = useState('');
   const [forging, setForging] = useState(false);
   const [forgeChars, setForgeChars] = useState(0);
+  const [forgeError, setForgeError] = useState<string | null>(null);
   const [manual, setManual] = useState(false);
   const [manualWorld, setManualWorld] = useState({ premise: '', setting: '', openingHook: '', startingLocation: '' });
 
@@ -60,13 +61,13 @@ export function NewCampaignScreen() {
 
   const forge = async () => {
     if (!apiKey) { toast('Add your OpenRouter key in Settings first', 'error'); return; }
-    setForging(true); setForgeChars(0);
+    setForging(true); setForgeChars(0); setForgeError(null);
     try {
       const s = await generateWorld(rs, idea, { tone: tones.join(', '), contentRating: rating, onProgress: setForgeChars });
       setSeed(s);
       if (!name) setName(s.suggestedName ?? '');
       toast('World forged', 'success');
-    } catch (e) { toast((e as Error).message, 'error'); }
+    } catch (e) { setForgeError((e as Error).message); toast((e as Error).message, 'error'); }
     setForging(false);
   };
 
@@ -172,6 +173,8 @@ export function NewCampaignScreen() {
                 <Field label="Tone"><div className="chips">{TONES.map((t) => <Chip key={t} on={tones.includes(t)} onClick={() => setTones((c) => (c.includes(t) ? c.filter((x) => x !== t) : [...c, t].slice(-3)))}>{t}</Chip>)}</div></Field>
                 <Field label="Content rating"><Segmented value={rating} options={[{ value: 'pg', label: 'PG' }, { value: 'pg13', label: 'PG-13' }, { value: 'r', label: 'Mature' }]} onChange={setRating} /></Field>
                 <Button variant="arcane" block disabled={forging} onClick={forge}><Wand2 size={16} /> {forging ? (forgeChars ? `Forging… ${(forgeChars / 1000).toFixed(1)}k` : 'Contacting the model…') : seed ? 'Forge again' : 'Forge world'}</Button>
+                {forging && <div className="tiny mute ui" style={{ textAlign: 'center' }}>Takes 30–90 seconds. Keep Tavern open — the screen stays awake.</div>}
+                {forgeError && <div className="msg-error">{forgeError}</div>}
                 {seed && (
                   <div className="card glow stack-sm">
                     <Field label="Campaign name"><input className="input" value={name} onChange={(e) => setName(e.target.value)} /></Field>
