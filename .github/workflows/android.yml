@@ -153,6 +153,19 @@ jobs:
           files: out/*
           generate_release_notes: true
 
+      - name: Prepare nightly assets (stable file names, prune old ones)
+        if: github.event_name == 'workflow_dispatch' && inputs.publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p nightly
+          for f in out/*.apk; do cp "$f" nightly/tavern-nightly.apk; done
+          for f in out/*.aab; do cp "$f" nightly/tavern-nightly.aab; done
+          # Remove assets from previous nightlies so the release only ever holds the latest build.
+          gh release view nightly --repo "$GITHUB_REPOSITORY" --json assets -q '.assets[].name' 2>/dev/null | while read -r a; do
+            gh release delete-asset nightly "$a" --repo "$GITHUB_REPOSITORY" --yes || true
+          done
+
       - name: Publish rolling nightly pre-release
         if: github.event_name == 'workflow_dispatch' && inputs.publish
         uses: softprops/action-gh-release@v2
@@ -160,10 +173,10 @@ jobs:
           tag_name: nightly
           name: Nightly build (${{ steps.version.outputs.name }})
           body: |
-            Latest sideloadable build from `${{ github.ref_name }}` @ ${{ github.sha }}.
-            Download the `.apk` below on your phone and open it to install.
+            Latest sideloadable build from `${{ github.ref_name }}` @ ${{ github.sha }} (version ${{ steps.version.outputs.name }}).
+            Download `tavern-nightly.apk` on your phone and open it to install.
           prerelease: true
-          files: out/*
+          files: nightly/*
           target_commitish: ${{ github.sha }}
 
   play:
