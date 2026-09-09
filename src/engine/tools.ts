@@ -6,6 +6,7 @@ import { abilityMod, armorClass, findClass, findItem, findMonster, findSpell, fu
 import { findEntityByName, mergeEntity, newEntity, entityCard } from './memory';
 import { characterBlock } from './prompt';
 import { uid, truncate } from '@/util/id';
+import { placeLocation, parseDirection, parseDistance, recordTravel } from './map';
 
 /* ------------------------------------------------------------------ */
 /* Tool definitions                                                    */
@@ -45,10 +46,11 @@ export function dmTools(rs: Ruleset): ToolDef[] {
     fn('adjust_gold', 'Change a party member\'s coin (positive to give, negative to take).', obj({ character: str('Name'), delta: num('Amount in the base currency'), reason: str('Why') }, ['character', 'delta'])),
     fn('award_xp', 'Award experience points to every party member.', obj({ amount: num('XP per character'), reason: str('What earned it') }, ['amount', 'reason'])),
     fn('start_combat', 'Begin structured combat. Enemies are looked up in the ruleset bestiary by name when possible; otherwise provide custom stats. The app rolls initiative for everyone.', obj({
-      enemies: { type: 'array', description: 'Enemy groups', items: obj({ name: str('Creature name (ruleset monster name if it exists)'), count: num('How many (default 1)'), label: str('Optional display name for a unique foe, e.g. "Grishnak the Butcher"'), hp: num('Custom max HP (optional)'), ac: num('Custom AC (optional)'), initiativeBonus: num('Custom initiative bonus (optional)') }, ['name']) },
+      enemies: { type: 'array', description: 'Enemy groups', items: obj({ name: str('Creature name (ruleset monster name if it exists)'), count: num('How many (default 1)'), label: str('Optional display name for a unique foe, e.g. "Grishnak the Butcher"'), hp: num('Custom max HP (optional)'), ac: num('Custom AC (optional)'), initiativeBonus: num('Custom initiative bonus (optional)'), range: str('Starting distance from the party', { enum: ['engaged', 'near', 'far'] }) }, ['name']) },
       allies: { type: 'array', description: 'Non-party allies in the fight (optional)', items: obj({ name: str('Name'), hp: num('Max HP'), ac: num('AC'), initiativeBonus: num('Initiative bonus') }, ['name']) },
       surprise: str('Who is surprised, if anyone', { enum: ['none', 'party', 'enemies'] }),
     }, ['enemies'])),
+    fn('move_combatant', 'Update a combatant\'s distance band relative to the party (engaged = in melee, near = a short dash away, far = ranged only). Call when someone closes, retreats, or is pushed.', obj({ name: str('Combatant name'), range: str('New distance band', { enum: ['engaged', 'near', 'far'] }) }, ['name', 'range'])),
     fn('advance_combat_turn', 'Advance the initiative tracker to the next combatant (skipping defeated ones). Returns whose turn it is.', obj({})),
     fn('end_combat', 'End structured combat.', obj({ outcome: str('victory | defeat | fled | parley | other'), summary: str('One-line summary') }, ['outcome'])),
     fn('upsert_entity', 'Create or update a world entity (NPC, location, faction, item, quest, lore, creature). This is your long-term memory: register anything named that might matter later.', obj({
@@ -65,6 +67,10 @@ export function dmTools(rs: Ruleset): ToolDef[] {
       questStatus: str('For quests', { enum: ['active', 'completed', 'failed', 'hidden'] }),
       objectives: { type: 'array', items: { type: 'string' }, description: 'For quests: objective texts to add' },
       present: bool('Mark this entity as present in the current scene'),
+      relativeTo: str('For locations: a known place this one is positioned relative to'),
+      direction: str('For locations: compass direction from relativeTo', { enum: ['n', 'ne', 'e', 'se', 's', 'sw', 'w', 'nw', 'inside'] }),
+      distance: str('For locations: rough distance from relativeTo', { enum: ['adjacent', 'near', 'moderate', 'far', 'distant'] }),
+      within: str('For locations: the larger place this is inside (a room in an inn, a district in a city)'),
     }, ['type', 'name', 'summary'])),
     fn('update_quest', 'Update a quest\'s status or objectives.', obj({ name: str('Quest name'), status: str('New status', { enum: ['active', 'completed', 'failed', 'hidden'] }), completeObjective: str('Text (or prefix) of an objective to mark done'), addObjective: str('New objective to add'), note: str('Fact to append') }, ['name'])),
     fn('record_fact', 'Record a durable canon fact about the world or story that must remain true from now on.', obj({ text: str('The fact, one sentence, specific'), category: str('e.g. history, geography, relationship, promise, death, discovery') }, ['text'])),
@@ -76,6 +82,10 @@ export function dmTools(rs: Ruleset): ToolDef[] {
       timeOfDay: str('e.g. dawn, morning, midday, afternoon, dusk, night, midnight'),
       weather: str('Weather / ambience'),
       mood: str('Emotional register, e.g. tense, festive, eerie'),
+      within: str('If the location is inside a larger known place (a room in an inn, a district), name it'),
+      relativeTo: str('For a NEW location: a known place it is positioned relative to'),
+      direction: str('Compass direction from relativeTo', { enum: ['n', 'ne', 'e', 'se', 's', 'sw', 'w', 'nw'] }),
+      distance: str('Rough distance from relativeTo', { enum: ['adjacent', 'near', 'moderate', 'far', 'distant'] }),
     }, [])),
     fn('advance_time', 'Advance the in-game clock.', obj({ minutes: num('Minutes'), hours: num('Hours'), days: num('Days'), timeOfDay: str('Resulting time of day label') }, [])),
     fn('illustrate', 'Generate an illustration of the current moment. Provide a rich, concrete visual prompt (subject, setting, lighting, mood, composition). Use sparingly.', obj({ prompt: str('Visual description'), kind: str('Image kind', { enum: ['scene', 'portrait', 'item', 'map'] }) }, ['prompt'])),
@@ -152,6 +162,22 @@ function ensureEntity(ctx: ToolContext, name: string, type: EntityType, extra: P
   const e = newEntity(c, { name, type, ...extra });
   ctx.set((c2) => ({ ...c2, entities: { ...c2.entities, [e.id]: e } }));
   return e;
+}
+
+/** Ensure a location entity exists, is placed on the map, and (optionally) nested inside a parent. */
+export function ensureLocation(ctx: ToolContext, name: string, opts: { summary?: string; within?: string; relativeTo?: string; direction?: string; distance?: string } = {}): Entity {
+  const loc = ensureEntity(ctx, name, 'location', { summary: opts.summary });
+  const c = ctx.get();
+  let parentId = loc.parentId;
+  if (opts.within && opts.within.toLowerCase() !== name.toLowerCase()) parentId = ensureLocation(ctx, opts.within).id;
+  let map = loc.map;
+  if (!map) {
+    const relTo = opts.relativeTo ? (findEntityByName(ctx.get(), opts.relativeTo, 'location') ?? ensureLocation(ctx, opts.relativeTo)).id : parentId;
+    const dir = parentId && !opts.relativeTo ? 'inside' : parseDirection(opts.direction);
+    map = placeLocation(ctx.get(), { ...loc, parentId }, { relativeToId: relTo, direction: dir, distance: parentId && !opts.relativeTo ? 'inside' : opts.distance ? parseDistance(opts.distance) : undefined });
+  }
+  if (map !== loc.map || parentId !== loc.parentId) ctx.set((c2) => ({ ...c2, entities: { ...c2.entities, [loc.id]: { ...c2.entities[loc.id], map, parentId } } }));
+  return ctx.get().entities[loc.id] ?? { ...loc, map, parentId };
 }
 
 export function executeTool(ctx: ToolContext, name: string, rawArgs: string): ToolOutcome {
@@ -440,7 +466,7 @@ const handlers: Record<string, Handler> = {
         const maxHp = Number(g.hp) || m?.hp.average || 11;
         const ac = Number(g.ac) || m?.ac || 12;
         const initBonus = Number(g.initiativeBonus) || (m ? monsterAbilityMod(rs, m, 'dex') : 0);
-        combatants.push({ id: uid('cb'), name: nm, kind: 'enemy', monsterId: m?.id, initiative: roll('1d20').total + initBonus, hp: maxHp, maxHp, ac, conditions: a.surprise === 'enemies' ? ['surprised'] : [], notes: m ? undefined : 'custom' });
+        combatants.push({ id: uid('cb'), name: nm, kind: 'enemy', monsterId: m?.id, initiative: roll('1d20').total + initBonus, hp: maxHp, maxHp, ac, conditions: a.surprise === 'enemies' ? ['surprised'] : [], notes: m ? undefined : 'custom', range: ['engaged', 'near', 'far'].includes(g.range) ? g.range : 'near' });
         if (!m) unknown.push(String(g.name));
       }
     }
@@ -454,6 +480,15 @@ const handlers: Record<string, Handler> = {
     ctx.onEvent(`Combat begins! Initiative: ${combatants.map((x) => `${x.name} ${x.initiative}`).join(', ')}`);
     const blocks = Array.from(new Set(combatants.filter((x) => x.monsterId).map((x) => x.monsterId!))).map((id) => { const m = findMonster(rs, id)!; return `${m.name}: ${m.actions.map((ac) => `${ac.name}${ac.attackBonus !== undefined ? ` +${ac.attackBonus} to hit` : ''}${ac.damage ? ` ${ac.damage} ${ac.damageType ?? ''}` : ''}`).join('; ')}${m.traits?.length ? ` | Traits: ${m.traits.map((t) => t.name).join(', ')}` : ''}`; });
     return { result: `Combat started. Initiative order: ${order}. First up: ${combatants[0]?.name}.${unknown.length ? ` (Not in bestiary, used custom stats: ${unknown.join(', ')})` : ''}\n${blocks.join('\n')}\nRun the round in order. When it is the player character's turn, stop and ask what they do. Surprised creatures skip their first turn.` };
+  },
+
+  move_combatant(ctx, a) {
+    const c = ctx.get();
+    const cb = findCombatant(c, String(a.name));
+    if (!cb) return { result: `ERROR: no combatant "${a.name}"` };
+    const range = ['engaged', 'near', 'far'].includes(a.range) ? a.range : 'near';
+    ctx.set((c2) => c2.combat ? { ...c2, combat: { ...c2.combat, combatants: c2.combat.combatants.map((x) => x.id === cb.id ? { ...x, range } : x) } } : c2);
+    return { result: `${cb.name} is now ${range}.` };
   },
 
   advance_combat_turn(ctx) {
@@ -497,7 +532,9 @@ const handlers: Record<string, Handler> = {
       status: a.status, attitude: a.attitude, tags: Array.isArray(a.tags) ? a.tags.map(String) : undefined, locationId,
       questStatus: type === 'quest' ? (a.questStatus ?? 'active') : undefined,
     };
-    const e = ensureEntity(ctx, String(a.name), type, extra);
+    const e = type === 'location'
+      ? (() => { const l = ensureLocation(ctx, String(a.name), { summary: a.summary, within: a.within, relativeTo: a.relativeTo, direction: a.direction, distance: a.distance }); return ensureEntity(ctx, l.name, 'location', extra); })()
+      : ensureEntity(ctx, String(a.name), type, extra);
     if (Array.isArray(a.objectives) && a.objectives.length) {
       const objs = [...(e.objectives ?? [])];
       for (const o of a.objectives) if (!objs.some((x) => x.text === String(o))) objs.push({ text: String(o), done: false });
@@ -532,14 +569,21 @@ const handlers: Record<string, Handler> = {
 
   set_scene(ctx, a) {
     const patch: Partial<Campaign['scene']> = {};
-    if (a.location) { const loc = ensureEntity(ctx, String(a.location), 'location', { summary: a.description ?? undefined }); patch.locationId = loc.id; patch.locationName = loc.name; }
+    if (a.location) {
+      const loc = ensureLocation(ctx, String(a.location), { summary: a.description ?? undefined, within: a.within, relativeTo: a.relativeTo, direction: a.direction, distance: a.distance });
+      patch.locationId = loc.id; patch.locationName = loc.name;
+      const prev = ctx.get().scene.locationId;
+      if (prev !== loc.id) ctx.set((c2) => recordTravel(c2, prev, loc.id));
+      // NPCs that arrive with the scene are now here.
+      if (Array.isArray(a.present)) for (const n of a.present) { const npc = ensureEntity(ctx, String(n), 'npc'); ctx.set((c2) => ({ ...c2, entities: { ...c2.entities, [npc.id]: { ...c2.entities[npc.id], locationId: loc.id } } })); }
+    }
     if (a.description) patch.description = String(a.description);
     if (a.situation) patch.situation = String(a.situation);
     if (a.timeOfDay) patch.timeOfDay = String(a.timeOfDay);
     if (a.weather !== undefined) patch.weather = String(a.weather);
     if (a.mood) patch.mood = String(a.mood);
-    if (Array.isArray(a.present)) patch.presentEntityIds = a.present.map((n: string) => ensureEntity(ctx, String(n), 'npc', { locationId: patch.locationId }).id);
-    ctx.set((c2) => ({ ...c2, scene: { ...c2.scene, ...patch, ...(a.timeOfDay ? {} : {}) }, world: a.timeOfDay ? { ...c2.world, calendar: { ...c2.world.calendar, timeOfDay: String(a.timeOfDay) } } : c2.world }));
+    if (Array.isArray(a.present)) patch.presentEntityIds = a.present.map((n: string) => ensureEntity(ctx, String(n), 'npc', { locationId: patch.locationId ?? ctx.get().scene.locationId }).id);
+    ctx.set((c2) => ({ ...c2, scene: { ...c2.scene, ...patch }, world: a.timeOfDay ? { ...c2.world, calendar: { ...c2.world.calendar, timeOfDay: String(a.timeOfDay) } } : c2.world }));
     const effect = a.location ? `Scene: ${a.location}` : undefined;
     return { result: 'Scene updated.', effect };
   },

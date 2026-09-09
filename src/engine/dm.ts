@@ -4,9 +4,10 @@ import { chat, chatJson, generateImage, type LlmMessage, type ToolCall } from '@
 import { useCampaign } from '@/store/campaign';
 import { useSettings } from '@/store/settings';
 import { useRulesets } from '@/store/rulesets';
-import { buildDmMessages, companionPrompt, scribePrompt } from './prompt';
-import { dmTools, executeTool, type ToolContext } from './tools';
+import { buildDmMessages, companionPrompt, scribePrompt, sceneTrackerPrompt } from './prompt';
+import { dmTools, executeTool, ensureLocation, type ToolContext } from './tools';
 import { chunkToSummarize, transcriptText, findEntityByName, newEntity, mergeEntity, touchMentionedEntities } from './memory';
+import { recordTravel } from './map';
 import { makeCheck, describeRoll } from './dice';
 import { skillMod, saveMod, abilityMod, weaponAttacks } from './rules';
 import { uid } from '@/util/id';
@@ -97,6 +98,7 @@ export async function runDmTurn(): Promise<void> {
 
   let halted = false;
   let finalText = '';
+  let sceneSetByDm = false;
   try {
     // Build once; tool results are appended as we go.
     const base = buildDmMessages(rs, useCampaign.getState().campaign!);
@@ -133,6 +135,7 @@ export async function runDmTurn(): Promise<void> {
         for (const tc of res.toolCalls as ToolCall[]) {
           useCampaign.getState().setBusy(true, toolLabel(tc.function.name));
           const out = executeTool(ctx, tc.function.name, tc.function.arguments);
+          if (tc.function.name === 'set_scene') sceneSetByDm = true;
           if (out.effect) effects.push(out.effect);
           messages.push({ role: 'tool', tool_call_id: tc.id, name: tc.function.name, content: out.result });
           if (out.halt) halted = true;
@@ -175,6 +178,9 @@ export async function runDmTurn(): Promise<void> {
     // Illustrations (fire and forget)
     for (const il of illustrations.slice(0, 1)) void illustrate(il.prompt, il.kind as any);
 
+    // Keep the scene state honest even when the DM forgot to call set_scene.
+    if (finalText.trim() && !halted) { try { await trackScene(ctx, finalText, sceneSetByDm); } catch (e) { console.warn('scene tracker failed', e); } }
+
     // Companions react
     const c2 = useCampaign.getState().campaign!;
     if (c2.settings.companionsSpeak && !halted && finalText.trim()) {
@@ -199,6 +205,36 @@ function toolLabel(name: string): string {
     lookup_rule: 'Consulting the rules…', lookup_spell: 'Consulting the spellbook…', lookup_monster: 'Opening the bestiary…', award_xp: 'Awarding experience…',
   };
   return map[name] ?? 'The Dungeon Master is thinking…';
+}
+
+/* ------------------------------------------------------------------ */
+/* Scene tracker                                                        */
+/* ------------------------------------------------------------------ */
+
+async function trackScene(ctx: ToolContext, narration: string, dmSetScene: boolean): Promise<void> {
+  const st = useCampaign.getState();
+  const c = st.campaign!;
+  const settings = useSettings.getState();
+  st.setBusy(true, 'Updating the map…');
+  const lastPlayer = [...c.messages].reverse().find((m) => m.role === 'player')?.content ?? '';
+  const json = await chatJson<{ locationChanged?: boolean; location?: string; within?: string; relativeTo?: string; direction?: string; distance?: string; description?: string; situation?: string; timeOfDay?: string | null; weather?: string | null; present?: string[] }>(
+    settings.apiKey, { model: settings.models.utility, messages: sceneTrackerPrompt(c, narration, lastPlayer), temperature: 0.1, max_tokens: 400, timeoutMs: 60000 },
+  );
+  const args: Record<string, unknown> = {};
+  // Trust the DM's explicit set_scene for location; the tracker only fills in what it did not.
+  if (!dmSetScene && json.locationChanged && json.location) {
+    args.location = json.location; args.within = json.within || undefined; args.relativeTo = json.relativeTo || undefined; args.direction = json.direction || undefined; args.distance = json.distance || undefined;
+    if (json.description) args.description = json.description;
+  }
+  if (json.situation) args.situation = json.situation;
+  if (json.timeOfDay && json.timeOfDay !== c.scene.timeOfDay) args.timeOfDay = json.timeOfDay;
+  if (json.weather && json.weather !== c.scene.weather) args.weather = json.weather;
+  if (Array.isArray(json.present) && !dmSetScene) args.present = json.present.filter((n) => typeof n === 'string' && n.trim() && !c.partyIds.some((id) => c.characters[id]?.name.toLowerCase() === n.toLowerCase())).slice(0, 8);
+  if (Object.keys(args).length) executeTool(ctx, 'set_scene', JSON.stringify(args));
+  // Make sure the current location is on the map even if it predates the map feature.
+  const c2 = useCampaign.getState().campaign!;
+  if (c2.scene.locationId && !c2.entities[c2.scene.locationId]?.map) ensureLocation(ctx, c2.scene.locationName);
+  if (c2.scene.locationId && !(c2.travel?.history ?? []).includes(c2.scene.locationId)) useCampaign.getState().update((d) => recordTravel(d, undefined, d.scene.locationId!));
 }
 
 /* ------------------------------------------------------------------ */

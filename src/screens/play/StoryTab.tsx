@@ -130,7 +130,7 @@ export function StoryTab() {
           {combat.combatants.map((c, i) => (
             <div key={c.id} className={`cb ${i === combat.turnIndex ? 'active' : ''} ${c.defeated ? 'defeated' : ''}`}>
               <div className="nm">{c.name}</div>
-              <div className="st">Init {c.initiative} · AC {c.ac}{c.conditions.length ? ` · ${c.conditions[0]}` : ''}</div>
+              <div className="st">{c.kind === 'enemy' && c.range ? `${c.range === 'engaged' ? '⚔ engaged' : c.range === 'near' ? '↔ near' : '➶ far'} · ` : ''}AC {c.ac}{c.conditions.length ? ` · ${c.conditions[0]}` : ''}</div>
               <div className={`bar hp ${c.hp / c.maxHp > 0.5 ? 'ok' : c.hp / c.maxHp > 0.25 ? 'warn' : ''}`}><i style={{ width: `${Math.max(0, (c.hp / c.maxHp) * 100)}%` }} /></div>
             </div>
           ))}

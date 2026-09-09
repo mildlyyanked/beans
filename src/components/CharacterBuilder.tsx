@@ -1,12 +1,14 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Dices, Sparkles, Wand2 } from 'lucide-react';
+import { Dices, Sparkles, Wand2, Save, FolderOpen, Trash2 } from 'lucide-react';
 import type { Ruleset } from '@/types/ruleset';
 import type { CharacterDraft } from '@/engine/character';
 import { emptyPersona, finalAbilities, pointBuyCost, rollAbilityScores, autoAssignAbilities, ALIGNMENTS } from '@/engine/character';
 import { abilityMod, findClass, findSpecies, findBackground, cantripsKnownAt, spellSlotsFor, maxSpellLevel, availableSpells, spellsKnownAt } from '@/engine/rules';
 import { fmtMod } from '@/engine/dice';
-import { generatePersona } from '@/engine/generators';
-import { Button, Field, Select, Segmented, Chip, SectionTitle } from '@/components/ui';
+import { generatePersona, generatePersonaField } from '@/engine/generators';
+import { useLibrary } from '@/store/library';
+import type { Persona } from '@/types/campaign';
+import { Button, Field, Select, Segmented, Chip, SectionTitle, Sheet } from '@/components/ui';
 import { useUI } from '@/store/ui';
 import type { Character } from '@/types/campaign';
 
@@ -23,6 +25,10 @@ export function CharacterBuilder({ rs, draft, onChange, worldPremise, playerName
   const [method, setMethod] = useState<'array' | 'points' | 'roll'>('array');
   const [genBusy, setGenBusy] = useState(false);
   const [genChars, setGenChars] = useState(0);
+  const [fieldBusy, setFieldBusy] = useState<string | null>(null);
+  const [libOpen, setLibOpen] = useState(false);
+  const library = useLibrary();
+  useEffect(() => { if (!library.loaded) void library.load(); /* eslint-disable-next-line */ }, []);
   const cls = findClass(rs, draft.classId);
   const sp = findSpecies(rs, draft.speciesId);
   const bg = findBackground(rs, draft.backgroundId);
@@ -57,17 +63,43 @@ export function CharacterBuilder({ rs, draft, onChange, worldPremise, playerName
     setGenBusy(true);
     try {
       setGenChars(0);
-      const p = await generatePersona(rs, { name: draft.name || undefined, speciesId: draft.speciesId, classId: draft.classId, backgroundId: draft.backgroundId, kind: draft.kind, worldPremise, playerName, onProgress: setGenChars });
+      const p = await generatePersona(rs, { name: draft.name || undefined, speciesId: draft.speciesId, classId: draft.classId, backgroundId: draft.backgroundId, kind: draft.kind, worldPremise, playerName, hint: draft.concept, onProgress: setGenChars });
       set({ name: draft.name || p.name || '', pronouns: p.pronouns, alignment: p.alignment ?? draft.alignment, persona: { personality: p.personality ?? '', ideals: p.ideals ?? '', bonds: p.bonds ?? '', flaws: p.flaws ?? '', voice: p.voice ?? '', backstory: p.backstory ?? '', appearance: p.appearance ?? '', relationship: p.relationship } });
       toast('Character written', 'success');
     } catch (e) { toast((e as Error).message, 'error'); }
     setGenBusy(false);
   };
 
+  const generateField = async (field: keyof Persona) => {
+    setFieldBusy(field);
+    try {
+      const value = await generatePersonaField(rs, { field, draft: { name: draft.name, speciesId: draft.speciesId, classId: draft.classId, backgroundId: draft.backgroundId, kind: draft.kind, persona: draft.persona, concept: draft.concept }, worldPremise, playerName });
+      if (value) set({ persona: { ...draft.persona, [field]: value } });
+    } catch (e) { toast((e as Error).message, 'error'); }
+    setFieldBusy(null);
+  };
+  const saveToLibrary = async () => {
+    if (!draft.name.trim()) { toast('Give the character a name first', 'error'); return; }
+    const summary = `${findSpecies(rs, draft.speciesId)?.name ?? ''} ${findClass(rs, draft.classId)?.name ?? ''} · ${findBackground(rs, draft.backgroundId)?.name ?? ''}`;
+    const existing = library.templates.find((t) => t.name === draft.name.trim() && t.rulesetId === rs.id);
+    await library.save(rs.id, draft, summary, existing?.id);
+    toast(existing ? `Updated "${draft.name}" in your library` : `Saved "${draft.name}" to your library`, 'success');
+  };
+  const loadFromLibrary = (t: (typeof library.templates)[number]) => {
+    const d = t.draft as CharacterDraft;
+    onChange({ ...d, kind: draft.kind, persona: { ...emptyPersona(), ...d.persona } });
+    setLibOpen(false);
+    toast(`Loaded ${t.name}`, 'success');
+  };
   const toggle = (list: string[], id: string, max: number) => list.includes(id) ? list.filter((x) => x !== id) : list.length < max ? [...list, id] : list;
 
+  const compatible = library.templates.filter((t) => t.rulesetId === rs.id);
   return (
     <div className="stack">
+      <div className="row" style={{ justifyContent: 'flex-end', gap: 6 }}>
+        <Button variant="subtle" size="xs" onClick={() => setLibOpen(true)}><FolderOpen size={12} /> Load saved{compatible.length ? ` (${compatible.length})` : ''}</Button>
+        <Button variant="subtle" size="xs" onClick={saveToLibrary}><Save size={12} /> Save to library</Button>
+      </div>
       <Field label="Name">
         <input className="input" placeholder="What are you called?" value={draft.name} onChange={(e) => set({ name: e.target.value })} />
       </Field>
@@ -197,17 +229,39 @@ export function CharacterBuilder({ rs, draft, onChange, worldPremise, playerName
         </>
       )}
 
-      <SectionTitle right={<Button variant="arcane" size="xs" disabled={genBusy} onClick={generate}><Wand2 size={12} /> {genBusy ? (genChars ? `Writing… ${genChars}` : 'Thinking…') : 'Write with AI'}</Button>}>Persona</SectionTitle>
+      <SectionTitle right={<Button variant="arcane" size="xs" disabled={genBusy} onClick={generate}><Wand2 size={12} /> {genBusy ? (genChars ? `Writing… ${genChars}` : 'Thinking…') : 'Write all with AI'}</Button>}>Persona</SectionTitle>
+      <Field label="Direction for the AI" hint="Optional. A sentence of intent — the AI writes every field around it.">
+        <textarea className="textarea" style={{ minHeight: 52 }} value={draft.concept ?? ''} onChange={(e) => set({ concept: e.target.value })} placeholder={draft.kind === 'companion' ? 'A gruff ex-soldier who owes the hero a life debt and hates magic' : 'A disgraced knight who lies about her past and collects other people\'s secrets'} />
+      </Field>
       <div className="stack-sm">
         {(['personality', 'ideals', 'bonds', 'flaws', 'appearance', 'voice', 'backstory'] as const).map((k) => (
           <Field key={k} label={k}>
-            <textarea className="textarea" style={{ minHeight: k === 'backstory' ? 120 : 52 }} value={draft.persona[k]} onChange={(e) => set({ persona: { ...draft.persona, [k]: e.target.value } })} placeholder={bg?.suggestedCharacteristics?.[k === 'personality' ? 'personalityTraits' : k === 'ideals' ? 'ideals' : k === 'bonds' ? 'bonds' : k === 'flaws' ? 'flaws' : 'ideals']?.[0] ?? ''} />
+            <div style={{ position: 'relative' }}>
+              <textarea className="textarea" style={{ minHeight: k === 'backstory' ? 120 : 52, paddingRight: 44 }} value={draft.persona[k]} onChange={(e) => set({ persona: { ...draft.persona, [k]: e.target.value } })} placeholder={bg?.suggestedCharacteristics?.[k === 'personality' ? 'personalityTraits' : k === 'ideals' ? 'ideals' : k === 'bonds' ? 'bonds' : k === 'flaws' ? 'flaws' : 'ideals']?.[0] ?? ''} />
+              <button className="iconbtn arcane" style={{ position: 'absolute', right: 6, top: 6 }} disabled={fieldBusy !== null} onClick={() => generateField(k)} aria-label={`Generate ${k}`} title={`Generate ${k} with AI`}>{fieldBusy === k ? <div className="spinner" style={{ width: 14, height: 14 }} /> : <Wand2 size={14} />}</button>
+            </div>
           </Field>
         ))}
         {draft.kind === 'companion' && (
-          <Field label="Relationship to the hero"><textarea className="textarea" style={{ minHeight: 52 }} value={draft.persona.relationship ?? ''} onChange={(e) => set({ persona: { ...draft.persona, relationship: e.target.value } })} /></Field>
+          <Field label="Relationship to the hero">
+            <div style={{ position: 'relative' }}>
+              <textarea className="textarea" style={{ minHeight: 52, paddingRight: 44 }} value={draft.persona.relationship ?? ''} onChange={(e) => set({ persona: { ...draft.persona, relationship: e.target.value } })} />
+              <button className="iconbtn arcane" style={{ position: 'absolute', right: 6, top: 6 }} disabled={fieldBusy !== null} onClick={() => generateField('relationship')} aria-label="Generate relationship">{fieldBusy === 'relationship' ? <div className="spinner" style={{ width: 14, height: 14 }} /> : <Wand2 size={14} />}</button>
+            </div>
+          </Field>
         )}
       </div>
+      <Sheet open={libOpen} onClose={() => setLibOpen(false)} title="Character library">
+        <div className="stack-sm">
+          {!compatible.length && <div className="empty"><div className="ico">📜</div><div className="display" style={{ fontSize: 13, letterSpacing: '0.1em' }}>No saved characters</div><div className="small mt-8">Save any hero or companion to reuse them in other campaigns.</div></div>}
+          {compatible.map((t) => (
+            <div key={t.id} className="card flat row clickable" onClick={() => loadFromLibrary(t)}>
+              <div className="grow"><div className="card-title">{t.name}</div><div className="tiny mute ui">{t.summary} · {t.kind}</div></div>
+              <button className="iconbtn" onClick={(e) => { e.stopPropagation(); void library.remove(t.id); }}><Trash2 size={15} /></button>
+            </div>
+          ))}
+        </div>
+      </Sheet>
       <div className="tiny mute ui row" style={{ gap: 6 }}><Sparkles size={12} /> Personas power your companions' voices and give the DM hooks to pull on.</div>
     </div>
   );

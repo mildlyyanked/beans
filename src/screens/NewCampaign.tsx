@@ -1,6 +1,7 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Wand2, Sparkles, Plus, Trash2, Users, Globe2, Swords, SlidersHorizontal, ChevronRight } from 'lucide-react';
 import { useUI } from '@/store/ui';
+import { useDraft, emptyDraft } from '@/store/draft';
 import { useRulesets } from '@/store/rulesets';
 import { useCampaign } from '@/store/campaign';
 import { useSettings } from '@/store/settings';
@@ -33,31 +34,41 @@ export function NewCampaignScreen() {
   const custom = useRulesets((s) => s.custom);
   const rulesets = useMemo(() => [...builtIn, ...custom], [builtIn, custom]);
   const apiKey = useSettings((s) => s.apiKey);
-  const [step, setStep] = useState<Step>(0);
-  const [rsId, setRsId] = useState(rulesets[0]?.id ?? 'srd-5e');
+  const saved = useDraft((s) => s.draft);
+  const saveDraft = useDraft((s) => s.save);
+  const clearDraft = useDraft((s) => s.clear);
+  const initial = useMemo(() => saved ?? emptyDraft(), []); // eslint-disable-line react-hooks/exhaustive-deps
+  const [step, setStep] = useState<Step>(Math.min(3, Math.max(0, initial.step)) as Step);
+  const [rsId, setRsId] = useState(useRulesets.getState().get(initial.rsId) ? initial.rsId : rulesets[0]?.id ?? 'srd-5e');
   const rs = useRulesets((s) => s.get(rsId))!;
 
   // World
-  const [idea, setIdea] = useState('');
-  const [tones, setTones] = useState<string[]>(['Heroic']);
-  const [rating, setRating] = useState<'pg' | 'pg13' | 'r'>('pg13');
-  const [seed, setSeed] = useState<WorldSeed | null>(null);
-  const [name, setName] = useState('');
+  const [idea, setIdea] = useState(initial.idea);
+  const [tones, setTones] = useState<string[]>(initial.tones);
+  const [rating, setRating] = useState<'pg' | 'pg13' | 'r'>(initial.rating);
+  const [seed, setSeed] = useState<WorldSeed | null>(initial.seed);
+  const [name, setName] = useState(initial.name);
   const [forging, setForging] = useState(false);
   const [forgeChars, setForgeChars] = useState(0);
   const [forgeError, setForgeError] = useState<string | null>(null);
-  const [manual, setManual] = useState(false);
-  const [manualWorld, setManualWorld] = useState({ premise: '', setting: '', openingHook: '', startingLocation: '' });
+  const [manual, setManual] = useState(initial.manual);
+  const [manualWorld, setManualWorld] = useState(initial.manualWorld);
 
   // Hero
-  const [hero, setHero] = useState<CharacterDraft>(() => newDraft(rs, 'player'));
+  const [hero, setHero] = useState<CharacterDraft>(() => initial.hero ?? newDraft(rs, 'player'));
   // Companions
-  const [companions, setCompanions] = useState<CharacterDraft[]>([]);
+  const [companions, setCompanions] = useState<CharacterDraft[]>(initial.companions);
   const [editing, setEditing] = useState<number | null>(null);
   const [suggesting, setSuggesting] = useState(false);
   // Options
-  const [opts, setOpts] = useState<Campaign['settings']>({ autoRoll: true, companionsSpeak: true, autoIllustrate: false, narrationLength: 'standard', difficulty: 'normal', contextWindowMessages: 30 });
+  const [opts, setOpts] = useState<Campaign['settings']>(initial.opts);
   const [starting, setStarting] = useState(false);
+
+  // Autosave the wizard so nothing is lost when the app is backgrounded or crashes.
+  useEffect(() => {
+    saveDraft({ step, rsId, idea, tones, rating, manual, manualWorld, seed, name, hero, companions, opts });
+  }, [step, rsId, idea, tones, rating, manual, manualWorld, seed, name, hero, companions, opts, saveDraft]);
+  const discard = () => { clearDraft(); back(); };
 
   const forge = async () => {
     if (!apiKey) { toast('Add your OpenRouter key in Settings first', 'error'); return; }
@@ -139,6 +150,7 @@ export function NewCampaignScreen() {
       }
       for (const e of ents) base.entities[e.id] = e;
       await useCampaign.getState().create(base);
+      clearDraft();
       go({ name: 'play' });
       void openCampaign().then(() => { if (opts.autoIllustrate) void illustrate(`${base.scene.locationName}: ${base.scene.description}. ${world.openingHook}`, 'scene', { attachTo: 'cover' }); });
     } catch (e) { toast((e as Error).message, 'error'); setStarting(false); }
@@ -153,7 +165,7 @@ export function NewCampaignScreen() {
 
   return (
     <>
-      <TopBar title="New Campaign" subtitle={`Step ${step + 1} of 4 · ${stepMeta[step].title}`} onBack={() => (step === 0 ? back() : setStep((step - 1) as Step))} />
+      <TopBar title="New Campaign" subtitle={`Step ${step + 1} of 4 · ${stepMeta[step].title} · draft autosaved`} onBack={() => (step === 0 ? back() : setStep((step - 1) as Step))} right={<Button variant="subtle" size="xs" onClick={discard}><Trash2 size={12} /> Discard</Button>} />
       <div className="steps">{[0, 1, 2, 3].map((i) => <i key={i} className={i <= step ? 'done' : ''} />)}</div>
       <div className="scroll pad stack" style={{ paddingBottom: 100 }}>
         {step === 0 && (
@@ -171,7 +183,7 @@ export function NewCampaignScreen() {
                 </Field>
                 <div className="chips">{IDEAS.map((i, n) => <Chip key={n} onClick={() => setIdea(i)}>{i.slice(0, 34)}…</Chip>)}</div>
                 <Field label="Tone"><div className="chips">{TONES.map((t) => <Chip key={t} on={tones.includes(t)} onClick={() => setTones((c) => (c.includes(t) ? c.filter((x) => x !== t) : [...c, t].slice(-3)))}>{t}</Chip>)}</div></Field>
-                <Field label="Content rating"><Segmented value={rating} options={[{ value: 'pg', label: 'PG' }, { value: 'pg13', label: 'PG-13' }, { value: 'r', label: 'Mature' }]} onChange={setRating} /></Field>
+                <Field label="Content rating" hint={rating === 'r' ? 'The DM is told not to cut away from scenes the rating allows. The model provider\'s own limits still apply — some models refuse regardless.' : undefined}><Segmented value={rating} options={[{ value: 'pg', label: 'PG' }, { value: 'pg13', label: 'PG-13' }, { value: 'r', label: 'Mature' }]} onChange={setRating} /></Field>
                 <Button variant="arcane" block disabled={forging} onClick={forge}><Wand2 size={16} /> {forging ? (forgeChars ? `Forging… ${(forgeChars / 1000).toFixed(1)}k` : 'Contacting the model…') : seed ? 'Forge again' : 'Forge world'}</Button>
                 {forging && <div className="tiny mute ui" style={{ textAlign: 'center' }}>Takes 30–90 seconds. Keep Tavern open — the screen stays awake.</div>}
                 {forgeError && <div className="msg-error">{forgeError}</div>}
@@ -237,7 +249,7 @@ export function NewCampaignScreen() {
               <div className="divider" />
               <Toggle on={opts.autoIllustrate} onChange={(v) => setOpts({ ...opts, autoIllustrate: v })} label="Auto-illustrate scenes" hint="The DM generates art for striking moments. Costs image credits." />
             </div>
-            <Field label="Narration length"><Segmented value={opts.narrationLength} options={[{ value: 'brief', label: 'Brief' }, { value: 'standard', label: 'Standard' }, { value: 'cinematic', label: 'Cinematic' }]} onChange={(v) => setOpts({ ...opts, narrationLength: v })} /></Field>
+            <Field label="Pacing" hint="Adaptive: the DM matches length to the beat — quick volleys in conversation, room to breathe for a new scene."><Segmented value={opts.narrationLength} options={[{ value: 'adaptive', label: 'Adaptive' }, { value: 'brief', label: 'Brief' }, { value: 'standard', label: 'Standard' }, { value: 'cinematic', label: 'Epic' }]} onChange={(v) => setOpts({ ...opts, narrationLength: v })} /></Field>
             <Field label="Difficulty" hint="Story: the DM favors drama over lethality. Hard: mistakes bite."><Segmented value={opts.difficulty} options={[{ value: 'story', label: 'Story' }, { value: 'normal', label: 'Normal' }, { value: 'hard', label: 'Hard' }]} onChange={(v) => setOpts({ ...opts, difficulty: v })} /></Field>
             <div className="card glow">
               <div className="eyebrow">Ready</div>

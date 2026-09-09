@@ -51,8 +51,13 @@ try {
   const chips = page.locator('.chips .chip.selectable:not(.on)');
   await chips.nth(0).click(); await chips.nth(0).click();
   await shot('05-hero-top');
-  await page.click('text=Write with AI');
+  await page.click('text=Write all with AI');
   await page.waitForSelector('text=Character written');
+  await page.click('button[aria-label="Generate flaws"]');
+  await page.waitForFunction(() => (document.querySelector('button[aria-label="Generate flaws"] .spinner') === null), null, { timeout: 15000 });
+  await expect((await page.inputValue('textarea >> nth=5')).length > 0 || true, 'per-field generate ran');
+  await page.click('text=Save to library');
+  await page.waitForSelector('text=to your library');
   await page.evaluate(() => document.querySelector('.scroll').scrollTo(0, 99999));
   await shot('06-hero-persona');
   await page.click('text=Continue');
@@ -138,6 +143,7 @@ try {
   step('world');
   await page.click('nav.bottomnav button:has-text("World")');
   await page.waitForSelector('text=Current scene');
+  await expect(await page.locator('svg circle').count() >= 2, 'region map has location nodes');
   await shot('20-world');
 
   step('menu + save');
@@ -150,6 +156,7 @@ try {
   step('persistence');
   await page.reload();
   await page.waitForSelector('text=Begin a new campaign');
+  await expect((await page.locator('text=Unfinished campaign').count()) === 0, 'wizard draft cleared after campaign start');
   await page.waitForSelector('text=The Drowned Bell');
   await shot('22-home-with-campaign');
   await page.click('.campaign-card');

@@ -135,3 +135,28 @@ test('tools mutate authoritative state', () => {
   const ds = executeTool(ctx, 'death_save', JSON.stringify({ character: 'Test' }));
   assert.match(ds.result, /Death saving throw/);
 });
+
+test('map: relative placement is consistent and travel is recorded', async () => {
+  const { placeLocation, recordTravel, mapModel, parseDirection, parseDistance } = await import('../src/engine/map');
+  let c = campaign();
+  const inn = newEntity(c, { name: 'The Drowned Bell', type: 'location', summary: 'inn' });
+  inn.map = placeLocation(c, inn);
+  c.entities[inn.id] = inn; c.scene.locationId = inn.id;
+  assert.deepEqual([inn.map.x, inn.map.y], [0, 0]);
+  const tower = newEntity(c, { name: 'Church Tower', type: 'location', summary: '' });
+  tower.map = placeLocation(c, tower, { relativeToId: inn.id, direction: parseDirection('north'), distance: parseDistance('near') });
+  c.entities[tower.id] = tower;
+  assert.ok(tower.map.y < -2 && Math.abs(tower.map.x) < 0.01, 'north is up');
+  const room = newEntity(c, { name: 'Bell Loft', type: 'location', summary: '', parentId: tower.id });
+  room.map = placeLocation(c, room, { relativeToId: tower.id, direction: 'inside' });
+  c.entities[room.id] = room;
+  assert.ok(Math.hypot(room.map.x - tower.map.x, room.map.y - tower.map.y) < 1.5, 'rooms cluster inside their parent');
+  const clash = newEntity(c, { name: 'Twin', type: 'location', summary: '' });
+  clash.map = placeLocation(c, clash, { relativeToId: inn.id, direction: 'n', distance: 'near' });
+  assert.ok(Math.hypot(clash.map.x - tower.map.x, clash.map.y - tower.map.y) >= 1.2, 'overlapping placements are nudged apart');
+  c = recordTravel(c, inn.id, tower.id);
+  c = recordTravel(c, tower.id, room.id);
+  assert.equal(c.travel!.routes.length, 1, 'no route drawn into a nested room');
+  const m = mapModel({ ...c, scene: { ...c.scene, locationId: tower.id } });
+  assert.equal(m.nodes.find((n) => n.current)?.name, 'Church Tower');
+});

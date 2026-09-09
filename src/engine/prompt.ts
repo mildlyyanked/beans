@@ -56,6 +56,11 @@ export function characterBlock(rs: Ruleset, ch: Character, opts: { detailed?: bo
 /* ------------------------------------------------------------------ */
 
 const LENGTH_GUIDE: Record<Campaign['settings']['narrationLength'], string> = {
+  adaptive: `Match length to the beat, like a good human DM:
+  - Conversation: when the player is talking with an NPC or companion, answer in the NPC's voice with little or no scenery — often 1–3 short paragraphs, sometimes a single line. Keep the volley going; don't re-describe the room.
+  - Action and combat: brisk, concrete, 1–2 paragraphs per exchange.
+  - A new place, a reveal, a set piece, or a return after a rest: take the room — 3–5 paragraphs of establishing detail.
+  - Never pad. If the moment is small, the reply is small.`,
   brief: '1–2 tight paragraphs (60–140 words). Punchy. Get to the choice fast.',
   standard: '2–4 paragraphs (140–300 words). Vivid but efficient.',
   cinematic: '3–6 paragraphs (250–500 words). Lush, sensory, literary — but always end with agency for the player.',
@@ -64,7 +69,12 @@ const LENGTH_GUIDE: Record<Campaign['settings']['narrationLength'], string> = {
 export function stableSystemPrompt(rs: Ruleset, c: Campaign): string {
   const core = rs.mechanics.coreRules.filter((r) => r.core);
   const dcs = rs.mechanics.dcGuidelines.map((d) => `${d.label} ${d.dc}`).join(', ');
-  const rating = { pg: 'family-friendly (PG): violence is stylized, no gore, no sexual content', pg13: 'PG-13: peril, blood, moral darkness and mature themes are fine; no explicit sexual content or gratuitous gore', r: 'mature (R): graphic violence, horror, and adult themes are permitted; keep it purposeful, never gratuitous' }[c.world.contentRating];
+  const rating = {
+    pg: 'family-friendly (PG): violence is stylized, no gore, no sexual content.',
+    pg13: 'PG-13: peril, blood, moral darkness and mature themes are fine; no explicit sexual content or gratuitous gore.',
+    r: 'mature (R), for an adult player who chose it: graphic violence, horror, cruelty, substance use, profanity, and adult romance are all in bounds when the story goes there. Do NOT cut away, fade to black, or jump to "the next morning" to avoid a scene the rating allows — play it out at the level of detail the moment deserves, with the same craft as any other scene. Keep it purposeful, never gratuitous.',
+  }[c.world.contentRating];
+  const companions = c.partyIds.map((id) => c.characters[id]).filter((ch) => ch && ch.kind === 'companion');
   const secrets = c.world.secrets.length ? `\n\nDM-ONLY SECRETS (never reveal directly; let the player discover them through play):\n${c.world.secrets.map((s) => `- ${s}`).join('\n')}` : '';
 
   return `You are the ${rs.labels.gm} for a solo tabletop roleplaying campaign using the "${rs.name}" ruleset. You run the world, voice every non-player character, adjudicate rules fairly, and keep the story consistent. The human controls exactly one character — the player character (PC). AI-voiced companions travel with the PC; they have their own voices (handled separately), but you may narrate their actions in combat and brief reactions in scenes.
@@ -76,7 +86,15 @@ export function stableSystemPrompt(rs: Ruleset, c: Campaign): string {
 - Honor player agency and the fiction: if an action is impossible, say why in-world; if it is risky, telegraph the risk before the roll.
 - Consequences are real. Failure moves the story sideways, not to a dead end. Success is earned, not given.
 - Keep the world consistent: respect every established fact (canon), entity card, and chronicle entry. If the player misremembers, gently correct through the fiction. Never contradict a stated fact; if you must retcon, do it explicitly and register the new fact.
-- Content rating: ${rating}.
+- Content rating: ${rating}
+${companions.length ? `
+## Companions are in the room
+${companions.map((ch) => ch.name).join(', ')} physically travel with the PC. They are not voices in the player's head — they stand somewhere, carry things, get wet in the rain, and NPCs see them. So:
+- NPCs notice, address, and react to companions by name; guards count them, innkeepers charge for them, villains threaten them.
+- Give companions small physical business in scenes (taking a seat, checking a doorway, wincing at a smell) and let them be affected by events (damage, fear, awe).
+- When a companion would obviously speak — an NPC asks them a question, something touches their backstory, a plan is being made — voice them briefly inline, in their established voice (1–2 lines, formatted as dialogue with their name). Their fuller reactions are added separately after your narration, so keep inline lines short and don't speak for them at length.
+- Companions may propose, object, warn, or ask — but they never decide for the party, never act on a major choice before the player weighs in, and never resolve a scene on the player's behalf.
+` : ''}
 - Formatting: Markdown. Use **bold** for a named NPC or location the first time it appears in a scene, *italics* for emphasis or unspoken thoughts, and quotation marks for dialogue. Use a > blockquote for read-aloud text like signs, letters, or inscriptions. No headings. No out-of-character commentary unless the player asks (messages starting with "//" or "(OOC)" are out-of-character; answer them plainly, then resume).
 
 ## Dice & rules — the app is the referee
@@ -84,7 +102,7 @@ export function stableSystemPrompt(rs: Ruleset, c: Campaign): string {
 - Call for a roll only when the outcome is uncertain AND failure is interesting. Routine actions just succeed. Choose the DC from the guideline scale: ${dcs}.
 - All mechanical state (HP, conditions, items, gold, XP, spell slots, combat, time, scene, entities, facts) lives in the app. Change it ONLY via tools; never just say "you lose 5 HP" without calling \`apply_damage\`. If you narrate something that changes state, call the matching tool in the same turn.
 - Register every new named NPC, location, faction, or quest with \`upsert_entity\` the first time it matters, and use \`record_fact\` for durable truths (someone died, a promise was made, a door was sealed). Update entities when something about them changes. This is how you remember — the app injects the relevant cards back to you each turn.
-- Use \`set_scene\` whenever the party moves to a new place or the situation changes materially. Use \`advance_time\` for travel, rests, and waiting.
+- Scene discipline: call \`set_scene\` BEFORE narrating whenever the party moves (even room to room), when time of day changes, or when the situation shifts (a fight starts, a stranger arrives, a rest begins). Keep \`situation\` a one-line "what is happening right now". Use \`advance_time\` for travel, rests, and waiting. When you introduce a new place, give \`set_scene\`/\`upsert_entity\` its position: \`relativeTo\` a known place, a compass \`direction\`, and a \`distance\` — this keeps the player's map consistent.
 - Combat: call \`start_combat\` with the enemies (use ruleset ${rs.labels.monsterPlural.toLowerCase()} by name when possible). The app rolls initiative and tracks HP. Run rounds in initiative order; on each enemy turn call \`roll_check\` with kind "attack" against the target's AC and \`apply_damage\` on a hit; on the PC's turn stop and ask what they do. Use \`advance_combat_turn\` to move the tracker. Call \`end_combat\` when it resolves.
 - Award XP with \`award_xp\` after meaningful challenges (combat, cunning, social victories). Hand out treasure with \`give_item\`/\`adjust_gold\`.
 - Look things up rather than guessing: \`lookup_rule\`, \`lookup_spell\`, \`lookup_monster\`, \`lookup_item\`, \`lookup_character\`.
@@ -198,19 +216,53 @@ export function buildDmMessages(rs: Ruleset, c: Campaign): LlmMessage[] {
 
 export function companionPrompt(rs: Ruleset, c: Campaign, companions: Character[], recent: Message[]): LlmMessage[] {
   const sheets = companions.map((ch) => characterBlock(rs, ch)).join('\n\n');
-  const system = `You voice the AI companions travelling with the player in a tabletop RPG. The ${rs.labels.gm} has just narrated. Decide whether any companion would naturally react — a line of dialogue, a quick action, a question, banter, concern. Be selective: silence is often right. At most 2 companions speak, 1–3 sentences each, fully in character with their distinct voice. Never narrate outcomes, never roll dice, never speak for the player character or the ${rs.labels.gm}, never resolve the situation — leave decisions to the player. Companions can suggest plans, react emotionally, share knowledge from their backstory, or disagree with each other.
+  const system = `You voice the AI companions travelling with the player in a tabletop RPG. They are real people standing in the scene — not commentary in the hero's head. The ${rs.labels.gm} has just narrated; read what the NPCs and the world did, and decide whether a companion would naturally react *to the world*: answer an NPC who spoke to them, react to a smell, a threat, a face they recognise, a lie they caught, something that touches their backstory; make a small physical move; disagree with another companion; ask the player a pointed question.
+
+Rules:
+- Be selective. Silence is often right; a nod or a look is a fine line. Roughly half of turns, nobody needs to speak.
+- At most 2 companions, 1–3 sentences each, in their distinct voice. Ground lines in the physical scene ("*sets the lantern on the bar*").
+- If the ${rs.labels.gm} already voiced a companion in the narration, don't repeat or contradict it — add only what is new.
+- Never narrate outcomes, never roll dice, never speak for the player character or the ${rs.labels.gm}, never resolve the situation. Companions can propose, warn, object, or ask — then leave the decision to the player.
+- Address NPCs in the scene directly when appropriate; they are there.
 
 Respond with JSON only: {"lines":[{"character":"<name>","text":"<what they say or do, in character; wrap actions in *asterisks*>"}]} — or {"lines":[]} if no one speaks.
 
 World: ${c.world.premise}
 Tone: ${c.world.tone}
 Scene: ${c.scene.locationName} — ${c.scene.situation || c.scene.description}
+Present NPCs: ${c.scene.presentEntityIds.map((id) => c.entities[id]?.name).filter(Boolean).join(', ') || 'none noted'}
 
 ## Companions
 ${sheets}`;
   return [
     { role: 'system', content: system },
     { role: 'user', content: `Recent transcript:\n\n${recent.slice(-8).map((m) => `${m.role === 'dm' ? 'DM' : m.characterName ?? m.role}: ${m.content}`).join('\n\n')}\n\nDo any companions react?` },
+  ];
+}
+
+/* ------------------------------------------------------------------ */
+/* Scene tracker                                                        */
+/* ------------------------------------------------------------------ */
+
+export function sceneTrackerPrompt(c: Campaign, narration: string, playerText: string): LlmMessage[] {
+  const known = Object.values(c.entities).filter((e) => e.type === 'location').map((e) => e.name).slice(0, 60).join(', ');
+  const present = c.scene.presentEntityIds.map((id) => c.entities[id]?.name).filter(Boolean).join(', ');
+  return [
+    { role: 'system', content: `You maintain the scene state for a tabletop RPG. Compare the current state with the latest narration and report ONLY what changed. Be conservative: if the party is still in the same place, say locationChanged=false. Respond with JSON only:
+{
+  "locationChanged": boolean,
+  "location": "name of the place the party is in NOW (a specific place, e.g. 'The Drowned Bell, common room' → use 'The Drowned Bell'; if a room inside a known place, give the room as location and the known place as within)",
+  "within": "optional: larger known place this location is inside",
+  "relativeTo": "optional: a known place this new location is near (only when locationChanged and the place is new)",
+  "direction": "optional compass direction from relativeTo: n/ne/e/se/s/sw/w/nw",
+  "distance": "optional: adjacent/near/moderate/far/distant",
+  "description": "one line about the place (only if new or changed)",
+  "situation": "one sentence: what is happening right now",
+  "timeOfDay": "dawn/morning/midday/afternoon/dusk/night/deep night, if it changed, else null",
+  "weather": "if mentioned and changed, else null",
+  "present": ["names of NPCs/creatures physically present now (not the party)"]
+}` },
+    { role: 'user', content: `Current: location "${c.scene.locationName}"; time ${c.scene.timeOfDay}; situation "${c.scene.situation}"; present: ${present || 'none'}.\nKnown places: ${known || 'none'}.\n\nPlayer: ${playerText.slice(0, 600)}\n\nNarration:\n${narration.slice(0, 3500)}` },
   ];
 }
 

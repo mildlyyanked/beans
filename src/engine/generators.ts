@@ -99,6 +99,29 @@ Respond with JSON only: {"companions":[{"name":"...","speciesId":"...","classId"
   return (json.companions ?? []).filter((c) => findClass(rs, c.classId) && findSpecies(rs, c.speciesId)).map((c) => ({ ...c, backgroundId: findBackground(rs, c.backgroundId) ? c.backgroundId : rs.backgrounds[0]?.id }));
 }
 
+/** Regenerate a single persona field, keeping the rest of the character as context. */
+export async function generatePersonaField(rs: Ruleset, opts: { field: keyof Persona; draft: { name: string; speciesId: string; classId: string; backgroundId: string; kind: 'player' | 'companion'; persona: Persona; concept?: string }; worldPremise?: string; playerName?: string }): Promise<string> {
+  const { field, draft } = opts;
+  const sp = findSpecies(rs, draft.speciesId)?.name ?? draft.speciesId;
+  const cls = findClass(rs, draft.classId)?.name ?? draft.classId;
+  const bg = findBackground(rs, draft.backgroundId)?.name ?? draft.backgroundId;
+  const guide: Record<keyof Persona, string> = {
+    personality: '2 sentences of personality traits, specific and playable',
+    ideals: '1 sentence: what they believe in',
+    bonds: '1 sentence: who or what they are tied to',
+    flaws: '1 sentence: a real, exploitable flaw',
+    voice: '1–2 sentences: cadence, vocabulary, verbal tics — how they talk',
+    backstory: '120–200 words, concrete, with one hook a DM can pull on',
+    appearance: '2 sentences, visually specific',
+    relationship: '1–2 sentences: why they travel with the hero and how they feel about them',
+  };
+  const others = (Object.keys(draft.persona) as (keyof Persona)[]).filter((k) => k !== field && draft.persona[k]).map((k) => `${k}: ${draft.persona[k]}`).join('\n');
+  const system = `You write vivid, playable RPG characters for the "${rs.name}" system. Write ONLY the "${field}" field for the character below, consistent with everything else known about them. Respond with JSON only: {"value": "..."}. Guidance for this field: ${guide[field]}.`;
+  const user = `${draft.kind === 'companion' ? 'Companion NPC' : 'Player character'}: ${draft.name || 'unnamed'}, ${sp} ${cls}, ${bg} background.${opts.worldPremise ? `\nCampaign: ${opts.worldPremise}` : ''}${opts.playerName && draft.kind === 'companion' ? `\nThe hero is ${opts.playerName}.` : ''}${draft.concept ? `\nDirection from the player: ${draft.concept}` : ''}${others ? `\n\nKnown so far:\n${others}` : ''}${draft.persona[field] ? `\n\nCurrent ${field} (write a fresh, different take): ${draft.persona[field]}` : ''}`;
+  const json = await chatJson<{ value?: string }>(key(), { model: utilityModel(), messages: [{ role: 'system', content: system }, { role: 'user', content: user }], temperature: 1.0, max_tokens: 700 });
+  return String(json.value ?? '').trim();
+}
+
 /* ------------------------------------------------------------------ */
 /* Rulesets                                                            */
 /* ------------------------------------------------------------------ */

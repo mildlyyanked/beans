@@ -3,6 +3,7 @@ import { Plus, Settings, BookOpen, Trash2, Upload } from 'lucide-react';
 import { useUI } from '@/store/ui';
 import { useCampaign } from '@/store/campaign';
 import { useRulesets } from '@/store/rulesets';
+import { useDraft, draftHasContent } from '@/store/draft';
 import { Button, IconButton, Sigil, useStoredImage, Confirm } from '@/components/ui';
 import type { CampaignSummary, Campaign } from '@/types/campaign';
 import { timeAgo, readFileAsText } from '@/util/id';
@@ -36,6 +37,9 @@ export function HomeScreen() {
   const remove = useCampaign((s) => s.remove);
   const open = useCampaign((s) => s.open);
   const [del, setDel] = useState<CampaignSummary | null>(null);
+  const draft = useDraft((s) => s.draft);
+  const clearDraft = useDraft((s) => s.clear);
+  const hasDraft = draftHasContent(draft);
 
   useEffect(() => { void loadLibrary(); }, [loadLibrary]);
 
@@ -61,7 +65,18 @@ export function HomeScreen() {
           <div className="tag">Your table. Any world. A Dungeon Master who never forgets.</div>
         </div>
         <div className="pad stack">
-          <div className="new-card" onClick={() => go({ name: 'new-campaign' })}>
+          {hasDraft && draft && (
+            <div className="card glow clickable" onClick={() => go({ name: 'new-campaign' })}>
+              <div className="row-between">
+                <div className="eyebrow">Unfinished campaign · step {draft.step + 1} of 4</div>
+                <IconButton onClick={(e) => { e.stopPropagation(); clearDraft(); }} aria-label="Discard draft"><Trash2 size={15} /></IconButton>
+              </div>
+              <div className="card-title mt-8">{draft.name || draft.seed?.suggestedName || (draft.idea ? draft.idea.slice(0, 60) : 'Untitled draft')}</div>
+              <div className="tiny mute ui mt-8">{draft.hero?.name ? `${draft.hero.name}` : 'No hero yet'}{draft.companions.length ? ` · ${draft.companions.length} companion${draft.companions.length > 1 ? 's' : ''}` : ''} · saved {timeAgo(draft.updatedAt)}</div>
+              <Button variant="primary" size="sm" className="mt-16">Resume</Button>
+            </div>
+          )}
+          <div className="new-card" onClick={() => { if (hasDraft) clearDraft(); go({ name: 'new-campaign' }); }}>
             <div className="row center" style={{ gap: 8 }}><Plus size={18} className="gold" /><span className="display gold" style={{ letterSpacing: '0.14em', fontSize: 13, textTransform: 'uppercase', fontWeight: 600 }}>Begin a new campaign</span></div>
             <div className="tiny mute ui mt-8">Forge a world, build a hero, gather companions</div>
           </div>

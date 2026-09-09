@@ -111,6 +111,10 @@ export interface Entity {
   /** Relationships to other entities: "ally of", "owes", etc. */
   relations?: { targetId: string; relation: string }[];
   imageId?: string;
+  /** Map placement for locations (abstract region coordinates, arbitrary units). */
+  map?: { x: number; y: number; region?: string };
+  /** For locations: the larger location this sits inside (e.g. a tavern inside a town). */
+  parentId?: string;
   /** Turn numbers the entity appeared on — powers recency scoring. */
   firstSeenTurn: number;
   lastSeenTurn: number;
@@ -193,6 +197,8 @@ export interface Combatant {
   conditions: string[];
   notes?: string;
   defeated?: boolean;
+  /** Distance band relative to the party. */
+  range?: 'engaged' | 'near' | 'far';
 }
 
 export interface CombatState {
@@ -265,7 +271,7 @@ export interface CampaignSettings {
   autoRoll: boolean;
   companionsSpeak: boolean;
   autoIllustrate: boolean;
-  narrationLength: 'brief' | 'standard' | 'cinematic';
+  narrationLength: 'adaptive' | 'brief' | 'standard' | 'cinematic';
   difficulty: 'story' | 'normal' | 'hard';
   /** How many recent messages are sent verbatim before summarization kicks in. */
   contextWindowMessages: number;
@@ -300,8 +306,21 @@ export interface Campaign {
   settings: CampaignSettings;
   images: Record<string, ImageMeta>;
   coverImageId?: string;
+  /** Travel graph between location entities, built as the party moves. */
+  travel?: { routes: [string, string][]; history: string[] };
   /** Snapshot bookkeeping for manual saves. */
   lastSavedAt?: number;
+}
+
+/** A reusable character template saved in the library. */
+export interface CharacterTemplate {
+  id: string;
+  name: string;
+  rulesetId: string;
+  kind: CharacterKind;
+  summary: string;
+  updatedAt: number;
+  draft: unknown; // CharacterDraft
 }
 
 export interface CampaignSummary {

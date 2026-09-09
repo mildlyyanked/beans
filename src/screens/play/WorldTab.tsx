@@ -4,6 +4,8 @@ import { useCampaign } from '@/store/campaign';
 import { Button, Chip, Field, SectionTitle, useStoredImage, StoredImage } from '@/components/ui';
 import { illustrate } from '@/engine/dm';
 import { useUI } from '@/store/ui';
+import { RegionMap } from '@/components/RegionMap';
+import type { MapNode } from '@/engine/map';
 
 export function WorldTab() {
   const campaign = useCampaign((s) => s.campaign)!;
@@ -14,9 +16,24 @@ export function WorldTab() {
   const present = campaign.scene.presentEntityIds.map((id) => campaign.entities[id]).filter(Boolean);
   const location = campaign.scene.locationId ? campaign.entities[campaign.scene.locationId] : undefined;
   const images = Object.values(campaign.images).sort((a, b) => b.createdAt - a.createdAt);
+  const [node, setNode] = useState<MapNode | null>(null);
+  const nodeEntity = node ? campaign.entities[node.id] : undefined;
 
   return (
     <div className="scroll pad stack" style={{ paddingBottom: 40 }}>
+      <div>
+        <div className="row-between mb-8"><div className="eyebrow">Region map</div><div className="tiny mute ui">drag · pinch · tap a place</div></div>
+        <RegionMap campaign={campaign} onSelect={setNode} />
+        {node && nodeEntity && (
+          <div className="card flat mt-8">
+            <div className="row-between"><div className="card-title">{nodeEntity.name}</div>{node.current && <Chip tone="gold">You are here</Chip>}</div>
+            {nodeEntity.summary && <div className="small dim mt-8">{nodeEntity.summary}</div>}
+            {node.npcs.length > 0 && <div className="tiny mute ui mt-8">People here: {node.npcs.join(', ')}</div>}
+            {nodeEntity.parentId && campaign.entities[nodeEntity.parentId] && <div className="tiny mute ui mt-8">Inside {campaign.entities[nodeEntity.parentId].name}</div>}
+            {nodeEntity.facts.length > 0 && <div className="small dim mt-8">{nodeEntity.facts.slice(-3).map((f, i) => <div key={i}>• {f}</div>)}</div>}
+          </div>
+        )}
+      </div>
       <div className="card" style={{ padding: 0 }}>
         {sceneImg ? <img src={sceneImg} alt="" style={{ width: '100%', aspectRatio: '16/9', objectFit: 'cover', display: 'block' }} /> : <div className="center" style={{ aspectRatio: '16/9', background: 'linear-gradient(160deg, var(--bg-4), var(--bg-2))' }}><Button variant="ghost" size="sm" onClick={() => void illustrate(`${campaign.scene.locationName}. ${campaign.scene.description} ${campaign.scene.situation}`, 'scene').then((id) => !id && toast('Illustration failed', 'error'))}><ImageIcon size={14} /> Illustrate this scene</Button></div>}
         <div style={{ padding: '14px 16px' }}>

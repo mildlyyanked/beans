@@ -65,7 +65,7 @@ export function MenuTab() {
           <div className="divider" />
           <Toggle on={campaign.settings.autoIllustrate} onChange={(v) => setSetting({ autoIllustrate: v })} label="Auto-illustrate scenes" />
           <div className="divider" />
-          <Field label="Narration"><Segmented value={campaign.settings.narrationLength} options={[{ value: 'brief', label: 'Brief' }, { value: 'standard', label: 'Standard' }, { value: 'cinematic', label: 'Cinematic' }]} onChange={(v) => setSetting({ narrationLength: v })} /></Field>
+          <Field label="Pacing" hint="Adaptive lets the DM match length to the beat."><Segmented value={campaign.settings.narrationLength} options={[{ value: 'adaptive', label: 'Adaptive' }, { value: 'brief', label: 'Brief' }, { value: 'standard', label: 'Standard' }, { value: 'cinematic', label: 'Epic' }]} onChange={(v) => setSetting({ narrationLength: v })} /></Field>
           <Field label={`Verbatim context · ${campaign.settings.contextWindowMessages} messages`} hint="Older messages are summarized into the chronicle."><input type="range" min={12} max={80} step={2} value={campaign.settings.contextWindowMessages} onChange={(e) => setSetting({ contextWindowMessages: parseInt(e.target.value, 10) })} style={{ width: '100%', accentColor: 'var(--gold)' }} /></Field>
         </div>
 

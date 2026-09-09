@@ -23,6 +23,8 @@ export interface CharacterDraft {
   spells?: string[];
   persona: Persona;
   level?: number;
+  /** Free-text direction for AI generation ("a disgraced knight who lies about her past"). */
+  concept?: string;
 }
 
 export function emptyPersona(): Persona {

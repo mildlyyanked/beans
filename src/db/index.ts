@@ -1,5 +1,5 @@
 import Dexie, { type Table } from 'dexie';
-import type { Campaign, SaveSlot } from '@/types/campaign';
+import type { Campaign, SaveSlot, CharacterTemplate } from '@/types/campaign';
 import type { Ruleset } from '@/types/ruleset';
 
 export interface StoredImage {
@@ -21,6 +21,7 @@ class TavernDB extends Dexie {
   saves!: Table<SaveSlot, string>;
   images!: Table<StoredImage, string>;
   rulesets!: Table<StoredRuleset, string>;
+  characters!: Table<CharacterTemplate, string>;
 
   constructor() {
     super('tavern-ai');
@@ -29,6 +30,13 @@ class TavernDB extends Dexie {
       saves: 'id, campaignId, createdAt',
       images: 'id, campaignId, createdAt',
       rulesets: 'id, updatedAt, name',
+    });
+    this.version(2).stores({
+      campaigns: 'id, updatedAt, name',
+      saves: 'id, campaignId, createdAt',
+      images: 'id, campaignId, createdAt',
+      rulesets: 'id, updatedAt, name',
+      characters: 'id, updatedAt, rulesetId, kind',
     });
   }
 }
