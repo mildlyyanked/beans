@@ -158,9 +158,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          shopt -s nullglob
           mkdir -p nightly
           for f in out/*.apk; do cp "$f" nightly/tavern-nightly.apk; done
           for f in out/*.aab; do cp "$f" nightly/tavern-nightly.aab; done
+          ls -la nightly
           # Remove assets from previous nightlies so the release only ever holds the latest build.
           gh release view nightly --repo "$GITHUB_REPOSITORY" --json assets -q '.assets[].name' 2>/dev/null | while read -r a; do
             gh release delete-asset nightly "$a" --repo "$GITHUB_REPOSITORY" --yes || true
